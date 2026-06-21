@@ -111,8 +111,8 @@ def knowledge_retrieval_node(state: AgentState) -> AgentState:
         (m["content"] for m in reversed(messages) if m["role"] == "user"), ""
     )
     try:
-        docs = similarity_search(last_user, k=5)
-        state["context"] = "\n\n---\n\n".join(d.page_content for d in docs)
+        docs = similarity_search(last_user, k=3)
+        state["context"] = "\n\n---\n\n".join(d.page_content for d in docs)[:2000]
     except Exception as e:
         logger.error(f"Knowledge retrieval failed: {e}")
         state["context"] = ""
@@ -123,16 +123,11 @@ def agent_node(state: AgentState) -> AgentState:
     """Call the LLM with system prompt, context, and conversation history."""
     llm = get_llm()
 
-    system_content = SYSTEM_PROMPT.format(
-        context=state["context"],
-        chat_history="\n".join(
-            f"{m['role'].upper()}: {m['content']}"
-            for m in state["messages"][:-1]
-        )
-    )
+    # History is sent as the message list below, not duplicated in the prompt.
+    system_content = SYSTEM_PROMPT.format(context=state["context"], chat_history="")
 
     lc_messages = [SystemMessage(content=system_content)]
-    for m in state["messages"]:
+    for m in state["messages"][-8:]:
         if m["role"] == "user":
             lc_messages.append(HumanMessage(content=m["content"]))
         elif m["role"] == "assistant":
@@ -227,20 +222,19 @@ def stream_chat(messages: list[dict], meta: dict):
     meta["lead_score"] = compute_lead_score(messages)
 
     try:
-        docs = similarity_search(last_user, k=5)
-        context = "\n\n---\n\n".join(d.page_content for d in docs)
+        # k=3 (not 5) and a hard length cap keep the prompt within tight
+        # input-token budgets (e.g. free OpenRouter tiers ~2.4k tokens).
+        docs = similarity_search(last_user, k=3)
+        context = "\n\n---\n\n".join(d.page_content for d in docs)[:2000]
     except Exception as e:
         logger.error(f"Knowledge retrieval failed: {e}")
         context = ""
 
-    system_content = SYSTEM_PROMPT.format(
-        context=context,
-        chat_history="\n".join(
-            f"{m['role'].upper()}: {m['content']}" for m in messages[:-1]
-        ),
-    )
+    # Don't embed the history in the system prompt — it's already sent as the
+    # message list below, and duplicating it roughly doubled the prompt size.
+    system_content = SYSTEM_PROMPT.format(context=context, chat_history="")
     lc_messages = [SystemMessage(content=system_content)]
-    for m in messages:
+    for m in messages[-8:]:   # last few turns only — bounds prompt growth
         if m["role"] == "user":
             lc_messages.append(HumanMessage(content=m["content"]))
         elif m["role"] == "assistant":
