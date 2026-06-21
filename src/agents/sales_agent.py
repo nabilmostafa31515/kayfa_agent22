@@ -61,7 +61,9 @@ def get_llm():
     if base_url is None and api_key and api_key.startswith("sk-or-"):
         base_url = "https://openrouter.ai/api/v1"
         if not os.getenv("OPENAI_MODEL"):
-            model = "openai/gpt-4o"
+            # Default to a FREE OpenRouter model so an unconfigured deploy
+            # doesn't silently spend credits on a paid model (e.g. gpt-4o).
+            model = "openai/gpt-oss-120b:free"
 
     return ChatOpenAI(
         model=model,
