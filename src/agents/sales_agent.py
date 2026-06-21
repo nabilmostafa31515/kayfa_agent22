@@ -112,7 +112,7 @@ def knowledge_retrieval_node(state: AgentState) -> AgentState:
     )
     try:
         docs = similarity_search(last_user, k=3)
-        state["context"] = "\n\n---\n\n".join(d.page_content for d in docs)[:2000]
+        state["context"] = "\n\n---\n\n".join(d.page_content for d in docs)[:1200]
     except Exception as e:
         logger.error(f"Knowledge retrieval failed: {e}")
         state["context"] = ""
@@ -127,7 +127,7 @@ def agent_node(state: AgentState) -> AgentState:
     system_content = SYSTEM_PROMPT.format(context=state["context"], chat_history="")
 
     lc_messages = [SystemMessage(content=system_content)]
-    for m in state["messages"][-8:]:
+    for m in state["messages"][-6:]:
         if m["role"] == "user":
             lc_messages.append(HumanMessage(content=m["content"]))
         elif m["role"] == "assistant":
@@ -225,7 +225,7 @@ def stream_chat(messages: list[dict], meta: dict):
         # k=3 (not 5) and a hard length cap keep the prompt within tight
         # input-token budgets (e.g. free OpenRouter tiers ~2.4k tokens).
         docs = similarity_search(last_user, k=3)
-        context = "\n\n---\n\n".join(d.page_content for d in docs)[:2000]
+        context = "\n\n---\n\n".join(d.page_content for d in docs)[:1200]
     except Exception as e:
         logger.error(f"Knowledge retrieval failed: {e}")
         context = ""
@@ -234,7 +234,7 @@ def stream_chat(messages: list[dict], meta: dict):
     # message list below, and duplicating it roughly doubled the prompt size.
     system_content = SYSTEM_PROMPT.format(context=context, chat_history="")
     lc_messages = [SystemMessage(content=system_content)]
-    for m in messages[-8:]:   # last few turns only — bounds prompt growth
+    for m in messages[-6:]:   # last few turns only — bounds prompt growth
         if m["role"] == "user":
             lc_messages.append(HumanMessage(content=m["content"]))
         elif m["role"] == "assistant":
