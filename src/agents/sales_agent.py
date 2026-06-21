@@ -71,8 +71,9 @@ def get_llm():
         base_url=base_url,
         # Bound completion length. Without this, ChatOpenAI requests the model's
         # full max (16k+), which some gateways/accounts (e.g. free OpenRouter
-        # credit tiers) reject with HTTP 402. Tune via OPENAI_MAX_TOKENS.
-        max_tokens=int(os.getenv("OPENAI_MAX_TOKENS", "1500")),
+        # credit tiers) reject with HTTP 402. Default kept low so it fits a free
+        # OpenRouter balance; raise via OPENAI_MAX_TOKENS once you add credits.
+        max_tokens=int(os.getenv("OPENAI_MAX_TOKENS", "512")),
     ).bind_tools(TOOLS)
 
 
