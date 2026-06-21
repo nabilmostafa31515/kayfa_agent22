@@ -9,7 +9,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.agents.lead_qualifier import is_qualified
+from src.agents.lead_qualifier import (
+    is_qualified, lead_temperature, detect_dialect,
+    detect_current_level, detect_budget_sensitivity,
+)
 from src.database.crm_repository import create_lead
 from src.ui.branding import page_header, LOGO_PATH
 
@@ -128,27 +131,76 @@ if st.session_state.show_lead_form and not st.session_state.lead_saved:
         """, unsafe_allow_html=True)
 
         with st.form("lead_form", clear_on_submit=True):
+            # Who
             ca, cb = st.columns(2)
             name = ca.text_input("الاسم الكامل / Full Name *")
-            phone = cb.text_input("رقم الهاتف / Phone *")
+            phone = cb.text_input("رقم الهاتف / واتساب — Phone / WhatsApp *")
             email = st.text_input("البريد الإلكتروني / Email *")
-            interest = st.text_input("ما الذي تريد تعلمه؟ / What do you want to learn?")
+
+            cc, cd = st.columns(2)
+            location = cc.text_input("المدينة / الدولة — City / Country")
+            best_time = cd.text_input("أفضل وقت للتواصل / Best time to contact")
+            channel = st.selectbox(
+                "قناة التواصل المفضلة / Preferred contact channel",
+                ["", "whatsapp", "phone", "email"],
+                format_func=lambda x: "— اختر / Select —" if x == "" else x.capitalize(),
+            )
+
+            # What they want
+            interest = st.text_input(
+                "ما الذي تريد تعلمه؟ / What do you want to learn?",
+                help="كورسات أو مسارات أو دبلومات محددة — Specific courses, tracks, or diplomas",
+            )
+            goal = st.text_input("هدفك من التعلّم / Your goal or motivation")
+            level = st.selectbox(
+                "مستواك الحالي / Your current level",
+                ["", "beginner", "intermediate", "advanced"],
+                format_func=lambda x: "— اختر / Select —" if x == "" else x.capitalize(),
+            )
+
             submitted = st.form_submit_button("📩 أرسل بياناتك | Submit",
                                               width="stretch", type="primary")
 
         if submitted:
             if name and phone and email:
-                summary = " | ".join(
-                    m["content"][:60] for m in st.session_state.messages[-6:] if m["role"] == "user"
-                )
+                # Build the "what happened" half of the ticket from the conversation.
+                user_turns = [m["content"] for m in st.session_state.messages if m["role"] == "user"]
+                convo_text = " ".join(user_turns)
+                summary = " | ".join(t[:80] for t in user_turns[-6:])
+
+                # Recommend the rep's next step from the detected intent stage.
+                NEXT_ACTION = {
+                    "ready": "العميل جاهز للتسجيل — أرسل رابط الدفع/التسجيل وتابع فوراً.",
+                    "price_sensitive": "أرسل تفاصيل الأسعار وأي خصومات/أقساط متاحة.",
+                    "objecting": "تابع لمعالجة التردد وقدّم ضمانات/قصص نجاح.",
+                    "comparing": "أرسل مقارنة واضحة بين الخيارات التي يهتم بها.",
+                    "exploring": "أرسل نظرة عامة على المسار المناسب ومحتواه.",
+                    "browsing": "تواصل لتأهيل العميل وفهم احتياجه بدقة.",
+                }
+                stage = st.session_state.intent_stage
                 try:
                     lead_id = create_lead(
                         name=name, phone=phone, email=email,
                         language=st.session_state.language,
-                        interest_area=interest or st.session_state.intent_stage,
+                        interest_area=interest or stage,
                         recommended_product="",
                         lead_score=st.session_state.lead_score,
                         conversation_summary=summary,
+                        # Who
+                        location=location,
+                        dialect=detect_dialect(convo_text) if st.session_state.language == "arabic" else "",
+                        contact_channel=channel,
+                        best_contact_time=best_time,
+                        # What they want
+                        products_of_interest=interest,
+                        goal=goal,
+                        current_level=level or detect_current_level(convo_text),
+                        # How likely
+                        temperature=lead_temperature(st.session_state.lead_score),
+                        budget_sensitivity=detect_budget_sensitivity(convo_text),
+                        objections="تردد محتمل" if stage == "objecting" else "",
+                        # What happened
+                        next_action=NEXT_ACTION.get(stage, NEXT_ACTION["browsing"]),
                     )
                     st.success(f"✅ تم إرسال بياناتك بنجاح! سيتواصل معك الفريق قريباً. (ID: {lead_id})")
                     st.session_state.lead_saved = True

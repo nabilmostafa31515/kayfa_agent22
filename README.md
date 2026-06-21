@@ -84,21 +84,52 @@ kayfa_agent/
 
 ## 🗄️ MongoDB Schema
 
+A lead is a full sales **ticket**, grouped into Who / What they want / How likely / What happened:
+
 ```json
 {
   "_id": "ObjectId",
+
+  // WHO
   "name": "Ahmed Mohamed",
   "phone": "01012345678",
+  "whatsapp": "01012345678",
   "email": "ahmed@example.com",
+  "location": "Cairo, Egypt",
   "language": "arabic",
+  "dialect": "مصري",
+  "contact_channel": "whatsapp",
+  "best_contact_time": "بعد 6 مساءً",
+
+  // WHAT THEY WANT
   "interest_area": "AI / Data Science",
+  "products_of_interest": ["AI Diploma", "Data Science Track"],
   "recommended_product": "AI Diploma",
+  "goal": "تغيير مساره المهني إلى الذكاء الاصطناعي",
+  "current_level": "beginner",
+  "prerequisites": "أساسيات بايثون",
+
+  // HOW LIKELY
   "lead_score": 0.75,
-  "conversation_summary": "Asked about AI diploma pricing...",
+  "temperature": "hot",
+  "buying_signals": ["سأل عن السعر", "طلب رابط التسجيل"],
+  "budget_sensitivity": "high",
+  "objections": "غير متأكد من الوقت المتاح",
+
+  // WHAT HAPPENED
+  "conversation_summary": "سأل عن دبلومة الذكاء الاصطناعي وسعرها...",
+  "next_action": "أرسل رابط الدفع/التسجيل وتابع فوراً.",
   "status": "new",
   "created_at": "2024-01-15T10:30:00Z"
 }
 ```
+
+Only `name` / `phone` / `email` are required — every other field is optional, so
+partial captures still persist. `temperature` is derived from `lead_score`
+(`hot ≥ 0.6 · warm ≥ 0.35 · cold`) when not explicitly set. The agent fills these
+fields via the `save_lead` tool during conversation; the chat capture form and
+rule-based extractors (`detect_dialect`, `detect_current_level`,
+`detect_budget_sensitivity`) backfill the rest.
 
 **Status values:** `new` → `contacted` → `qualified` → `converted` / `lost`
 

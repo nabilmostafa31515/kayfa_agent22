@@ -15,8 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.database.crm_repository import (
     get_all_leads, search_leads, get_lead_stats,
     get_leads_by_interest, get_leads_by_status,
-    get_leads_by_language, get_score_distribution,
-    get_leads_over_time, update_lead_status,
+    get_leads_by_language, get_leads_by_temperature,
+    get_score_distribution, get_leads_over_time, update_lead_status,
 )
 from src.database.mongodb import ping
 from src.ui.branding import page_header, is_dark, active_palette
@@ -157,6 +157,34 @@ with c4:
     else:
         st.info("No language data yet.")
 
+c5, c6 = st.columns(2)
+
+# Chart 5: Lead Temperature (hot / warm / cold)
+TEMP_COLORS = {"hot": "#EF5350", "warm": "#FFA726", "cold": "#42A5F5"}
+TEMP_ORDER = {"hot": 0, "warm": 1, "cold": 2}
+with c5:
+    temp_data = get_leads_by_temperature()
+    if temp_data:
+        df_temp = pd.DataFrame(temp_data)
+        fig5 = px.pie(
+            df_temp, names="temperature", values="count",
+            title="Lead Temperature",
+            color="temperature", color_discrete_map=TEMP_COLORS,
+            template=PLOTLY_TEMPLATE, hole=0.45,
+        )
+        st.plotly_chart(_style(fig5), width="stretch")
+    else:
+        st.info("No temperature data yet.")
+
+# Quick hot/warm/cold counts beside the donut
+with c6:
+    temp_counts = {t["temperature"]: t["count"] for t in get_leads_by_temperature()}
+    st.markdown("<br>", unsafe_allow_html=True)
+    m1, m2, m3 = st.columns(3)
+    m1.metric("🔥 Hot", temp_counts.get("hot", 0))
+    m2.metric("🌤️ Warm", temp_counts.get("warm", 0))
+    m3.metric("❄️ Cold", temp_counts.get("cold", 0))
+
 st.divider()
 
 # ── Leads Over Time ─────────────────────────────────────────────────────────
@@ -225,28 +253,84 @@ if not leads:
     st.info("No leads found.")
 else:
     df = pd.DataFrame(leads)
+    # Ensure newer ticket columns exist even when legacy leads predate them.
+    for col in ["temperature", "location", "goal", "current_level", "next_action"]:
+        if col not in df.columns:
+            df[col] = ""
+    df = df.fillna("")
     # Format columns
-    df["lead_score"] = df["lead_score"].apply(lambda x: f"{x:.0%}")
+    df["lead_score"] = df["lead_score"].apply(lambda x: f"{x:.0%}" if isinstance(x, (int, float)) else x)
     df["created_at"] = pd.to_datetime(df["created_at"]).dt.strftime("%Y-%m-%d %H:%M")
+    TEMP_EMOJI = {"hot": "🔥 hot", "warm": "🌤️ warm", "cold": "❄️ cold"}
+    df["temperature"] = df["temperature"].apply(lambda t: TEMP_EMOJI.get(t, t or "—"))
     df = df.rename(columns={
         "_id": "ID", "name": "Name", "phone": "Phone", "email": "Email",
-        "language": "Lang", "interest_area": "Interest",
+        "language": "Lang", "location": "Location", "interest_area": "Interest",
         "recommended_product": "Product", "lead_score": "Score",
-        "status": "Status", "created_at": "Created",
+        "temperature": "Temp", "status": "Status", "created_at": "Created",
     })
-    cols_show = ["Name", "Phone", "Email", "Lang", "Interest", "Score", "Status", "Created"]
+    cols_show = ["Name", "Phone", "Email", "Location", "Lang", "Interest",
+                 "Score", "Temp", "Status", "Created"]
     st.dataframe(df[cols_show], width="stretch", hide_index=True)
 
-    # Quick status update
-    st.divider()
-    st.markdown("#### ✏️ Update Lead Status")
+    # ── Full ticket detail ──────────────────────────────────────────────────
+    st.markdown("#### 🎫 Ticket Detail")
     raw_ids = [l["_id"] for l in leads]
     raw_names = [l.get("name", "Unknown") for l in leads]
     options = [f"{n} ({i[:8]}…)" for n, i in zip(raw_names, raw_ids)]
     selected = st.selectbox("Select lead", options)
+    idx = options.index(selected)
+    lead = leads[idx]
+
+    def _row(label, value):
+        value = value if (value not in (None, "", [])) else "—"
+        if isinstance(value, list):
+            value = "، ".join(value) if value else "—"
+        return f"- **{label}:** {value}\n"
+
+    score = lead.get("lead_score", 0)
+    score_txt = f"{score:.0%}" if isinstance(score, (int, float)) else score
+    dc1, dc2 = st.columns(2)
+    with dc1:
+        st.markdown("**👤 من هو العميل / Who**")
+        md = (_row("الاسم / Name", lead.get("name"))
+              + _row("الهاتف / Phone", lead.get("phone"))
+              + _row("واتساب / WhatsApp", lead.get("whatsapp"))
+              + _row("البريد / Email", lead.get("email"))
+              + _row("الموقع / Location", lead.get("location"))
+              + _row("اللغة / Language", lead.get("language"))
+              + _row("اللهجة / Dialect", lead.get("dialect"))
+              + _row("قناة التواصل / Channel", lead.get("contact_channel"))
+              + _row("أفضل وقت / Best time", lead.get("best_contact_time")))
+        st.markdown(md)
+        st.markdown("**🎯 ماذا يريد / What they want**")
+        md = (_row("الاهتمام / Interest", lead.get("interest_area"))
+              + _row("منتجات محل الاهتمام / Products", lead.get("products_of_interest"))
+              + _row("التوصية / Recommended", lead.get("recommended_product"))
+              + _row("الهدف / Goal", lead.get("goal"))
+              + _row("المستوى / Level", lead.get("current_level"))
+              + _row("المتطلبات / Prerequisites", lead.get("prerequisites")))
+        st.markdown(md)
+    with dc2:
+        st.markdown("**📊 احتمالية الشراء / How likely**")
+        md = (_row("الدرجة / Score", score_txt)
+              + _row("الحرارة / Temperature", lead.get("temperature"))
+              + _row("إشارات الشراء / Buying signals", lead.get("buying_signals"))
+              + _row("حساسية الميزانية / Budget", lead.get("budget_sensitivity"))
+              + _row("الاعتراضات / Objections", lead.get("objections")))
+        st.markdown(md)
+        st.markdown("**📝 ماذا حدث / What happened**")
+        md = (_row("ملخص المحادثة / Summary", lead.get("conversation_summary"))
+              + _row("الإجراء التالي / Next action", lead.get("next_action"))
+              + _row("الحالة / Status", lead.get("status"))
+              + _row("التاريخ / Created", df.iloc[idx]["Created"]))
+        st.markdown(md)
+
+    # Quick status update
+    st.divider()
+    st.markdown("#### ✏️ Update Lead Status")
     new_status = st.selectbox("New status", ["new", "contacted", "qualified", "converted", "lost"])
     if st.button("Update Status", type="primary"):
-        idx = options.index(selected)
         lead_id = raw_ids[idx]
         success = update_lead_status(lead_id, new_status)
         if success:

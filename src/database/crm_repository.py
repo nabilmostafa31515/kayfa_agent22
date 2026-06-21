@@ -15,44 +15,99 @@ def _db():
 
 # ── CREATE ─────────────────────────────────────────────────────────────────────
 
+def _temperature_from_score(score: float) -> str:
+    """hot ≥ 0.6 · warm ≥ 0.35 · cold otherwise (mirrors the chat badges)."""
+    if score >= 0.6:
+        return "hot"
+    if score >= 0.35:
+        return "warm"
+    return "cold"
+
+
 def create_lead(
     name: str,
     phone: str,
     email: str,
-    language: str,
-    interest_area: str,
-    recommended_product: str,
-    lead_score: float,
-    conversation_summary: str,
+    language: str = "arabic",
+    interest_area: str = "",
+    recommended_product: str = "",
+    lead_score: float = 0.0,
+    conversation_summary: str = "",
+    *,
+    # ── Who ──────────────────────────────────────────────────────────────────
+    whatsapp: str = "",
+    location: str = "",
+    dialect: str = "",
+    contact_channel: str = "",
+    best_contact_time: str = "",
+    # ── What they want ───────────────────────────────────────────────────────
+    products_of_interest: list[str] | str | None = None,
+    goal: str = "",
+    current_level: str = "",
+    prerequisites: str = "",
+    # ── How likely ───────────────────────────────────────────────────────────
+    temperature: str = "",
+    buying_signals: list[str] | str | None = None,
+    budget_sensitivity: str = "",
+    objections: str = "",
+    # ── What happened ────────────────────────────────────────────────────────
+    next_action: str = "",
+    status: str = "new",
 ) -> str:
-    """Insert a new lead and return its inserted_id as string."""
+    """Insert a new lead/ticket and return its inserted_id as string.
+
+    Only name/phone/email are truly required; every other field of the "good
+    ticket" is optional so partial captures still persist. ``temperature`` is
+    derived from ``lead_score`` when not provided. List-typed fields accept a
+    comma-joined string too (the agent often passes one)."""
+
+    def _as_list(v):
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [p.strip() for p in v.split(",") if p.strip()]
+        return list(v)
+
     doc = {
+        # Who
         "name": name,
         "phone": phone,
+        "whatsapp": whatsapp or phone,
         "email": email,
+        "location": location,
         "language": language,
+        "dialect": dialect,
+        "contact_channel": contact_channel,
+        "best_contact_time": best_contact_time,
+        # What they want
         "interest_area": interest_area,
+        "products_of_interest": _as_list(products_of_interest),
         "recommended_product": recommended_product,
+        "goal": goal,
+        "current_level": current_level,
+        "prerequisites": prerequisites,
+        # How likely
         "lead_score": round(lead_score, 2),
+        "temperature": temperature or _temperature_from_score(lead_score),
+        "buying_signals": _as_list(buying_signals),
+        "budget_sensitivity": budget_sensitivity,
+        "objections": objections,
+        # What happened
         "conversation_summary": conversation_summary,
-        "status": "new",
+        "next_action": next_action,
+        "status": status,
         "created_at": datetime.now(timezone.utc),
     }
     result = _db().insert_one(doc)
-    logger.info(f"Lead created: {result.inserted_id}")
+    logger.info(f"Lead created: {result.inserted_id} ({doc['temperature']})")
     return str(result.inserted_id)
 
 
 # ── READ ───────────────────────────────────────────────────────────────────────
 
 def get_all_leads(limit: int = 200) -> list[dict]:
-    """Return all leads sorted by newest first."""
-    docs = _db().find({}, {"_id": 1, "name": 1, "phone": 1, "email": 1,
-                           "language": 1, "interest_area": 1,
-                           "recommended_product": 1, "lead_score": 1,
-                           "conversation_summary": 1, "status": 1,
-                           "created_at": 1}
-                      ).sort("created_at", DESCENDING).limit(limit)
+    """Return all leads (full ticket) sorted by newest first."""
+    docs = _db().find({}).sort("created_at", DESCENDING).limit(limit)
     results = []
     for d in docs:
         d["_id"] = str(d["_id"])
@@ -146,6 +201,28 @@ def get_leads_by_status() -> list[dict]:
         {"$sort": {"count": -1}},
     ]
     return [{"status": d["_id"], "count": d["count"]}
+            for d in _db().aggregate(pipeline)]
+
+
+def get_leads_by_temperature() -> list[dict]:
+    """Count leads by hot / warm / cold. Falls back to deriving the label from
+    lead_score for legacy leads saved before the field existed."""
+    pipeline = [
+        {"$group": {
+            "_id": {"$ifNull": ["$temperature", {
+                "$switch": {
+                    "branches": [
+                        {"case": {"$gte": ["$lead_score", 0.6]}, "then": "hot"},
+                        {"case": {"$gte": ["$lead_score", 0.35]}, "then": "warm"},
+                    ],
+                    "default": "cold",
+                }
+            }]},
+            "count": {"$sum": 1},
+        }},
+        {"$sort": {"count": -1}},
+    ]
+    return [{"temperature": d["_id"], "count": d["count"]}
             for d in _db().aggregate(pipeline)]
 
 
