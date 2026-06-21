@@ -50,12 +50,25 @@ MAX_TOOL_ITERATIONS = 5
 def get_llm():
     # Supports OpenAI and OpenAI-compatible gateways (e.g. OpenRouter) via
     # OPENAI_BASE_URL / OPENAI_MODEL. Falls back to OpenAI's gpt-4o.
+    api_key = os.getenv("OPENAI_API_KEY")
+    base_url = os.getenv("OPENAI_BASE_URL") or None
+    model = os.getenv("OPENAI_MODEL", "gpt-4o")
+
+    # An OpenRouter key (sk-or-…) MUST hit OpenRouter, not OpenAI's default
+    # endpoint, or it 401s ("Incorrect API key"). If the base URL wasn't
+    # configured on the deploy, auto-route OpenRouter keys and pick a sane
+    # OpenRouter-formatted default model so a bare "gpt-4o" doesn't 404.
+    if base_url is None and api_key and api_key.startswith("sk-or-"):
+        base_url = "https://openrouter.ai/api/v1"
+        if not os.getenv("OPENAI_MODEL"):
+            model = "openai/gpt-4o"
+
     return ChatOpenAI(
-        model=os.getenv("OPENAI_MODEL", "gpt-4o"),
+        model=model,
         temperature=0.4,
         streaming=True,
-        openai_api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=os.getenv("OPENAI_BASE_URL") or None,
+        openai_api_key=api_key,
+        base_url=base_url,
         # Bound completion length. Without this, ChatOpenAI requests the model's
         # full max (16k+), which some gateways/accounts (e.g. free OpenRouter
         # credit tiers) reject with HTTP 402. Tune via OPENAI_MAX_TOKENS.
