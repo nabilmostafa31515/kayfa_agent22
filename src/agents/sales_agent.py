@@ -291,3 +291,5 @@ def chat(messages: list[dict]) -> dict:
         "lead_score": result["lead_score"],
         "lead_saved": result["lead_saved"],
     }
+
+# cache-bust: force Streamlit Cloud bytecode refresh (2026-06-21)

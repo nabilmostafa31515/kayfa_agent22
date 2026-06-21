@@ -113,3 +113,5 @@ def update_lead(lead_id: str, status: str) -> str:
     except Exception as e:
         logger.error(f"update_lead error: {e}")
         return "حدث خطأ أثناء التحديث."
+
+# cache-bust: force Streamlit Cloud bytecode refresh (2026-06-21)

@@ -154,3 +154,5 @@ def detect_budget_sensitivity(text: str) -> str:
     """Return 'high' if price/discount concerns appear, else ''."""
     lowered = text.lower()
     return "high" if any(k in lowered for k in _BUDGET_SENSITIVE) else ""
+
+# cache-bust: force Streamlit Cloud bytecode refresh (2026-06-21)
