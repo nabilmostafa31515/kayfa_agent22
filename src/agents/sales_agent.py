@@ -192,6 +192,74 @@ def get_graph():
     return _graph
 
 
+def stream_chat(messages: list[dict], meta: dict):
+    """Generator variant of `chat` for live token streaming in the UI.
+
+    Yields the assistant's reply in text chunks as the model generates them.
+    `meta` is a dict the caller passes in; it is populated immediately (before
+    the first token) with intent_stage / language / lead_score, and with
+    `response` once streaming completes. The assistant turn is appended to
+    `messages` at the end (without a timestamp — the UI owns that).
+
+    Intent scoring and KB retrieval run up front (rule-based / fast), then the
+    tool-calling loop streams each LLM turn; tool-call turns emit little or no
+    visible text, and the final answer streams naturally.
+    """
+    last_user = next(
+        (m["content"] for m in reversed(messages) if m["role"] == "user"), ""
+    )
+    meta["intent_stage"] = detect_intent_stage(messages)
+    meta["language"] = extract_language(last_user)
+    meta["lead_score"] = compute_lead_score(messages)
+
+    try:
+        docs = similarity_search(last_user, k=5)
+        context = "\n\n---\n\n".join(d.page_content for d in docs)
+    except Exception as e:
+        logger.error(f"Knowledge retrieval failed: {e}")
+        context = ""
+
+    system_content = SYSTEM_PROMPT.format(
+        context=context,
+        chat_history="\n".join(
+            f"{m['role'].upper()}: {m['content']}" for m in messages[:-1]
+        ),
+    )
+    lc_messages = [SystemMessage(content=system_content)]
+    for m in messages:
+        if m["role"] == "user":
+            lc_messages.append(HumanMessage(content=m["content"]))
+        elif m["role"] == "assistant":
+            lc_messages.append(AIMessage(content=m["content"]))
+
+    llm = get_llm()
+    final_text = ""
+    for _ in range(MAX_TOOL_ITERATIONS):
+        gathered = None  # AIMessageChunks accumulate (incl. tool_calls) via +
+        for chunk in llm.stream(lc_messages):
+            gathered = chunk if gathered is None else gathered + chunk
+            if chunk.content:
+                final_text += chunk.content
+                yield chunk.content
+
+        tool_calls = getattr(gathered, "tool_calls", None)
+        if not tool_calls:
+            break
+
+        lc_messages.append(gathered)
+        for call in tool_calls:
+            tool = TOOL_MAP.get(call["name"])
+            try:
+                output = tool.invoke(call["args"]) if tool else f"Unknown tool: {call['name']}"
+            except Exception as e:
+                logger.error(f"Tool {call['name']} failed: {e}")
+                output = f"Tool error: {e}"
+            lc_messages.append(ToolMessage(content=str(output), tool_call_id=call["id"]))
+
+    meta["response"] = final_text
+    messages.append({"role": "assistant", "content": final_text})
+
+
 def chat(messages: list[dict]) -> dict:
     """
     Run one turn of the sales agent.

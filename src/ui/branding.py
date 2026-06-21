@@ -106,6 +106,17 @@ def brand_mark(size_px: int = 64) -> str:
     return f"<span class='k-logo-chip k-logo-chip--text'>{LOGO_FALLBACK_EMOJI} Kayfa</span>"
 
 
+def logo_data_uri() -> str | None:
+    """Return the logo as a `data:` URI for embedding in custom HTML (e.g. the
+    chat avatar), or None if no logo asset is available."""
+    if LOGO_PATH:
+        b64 = _img_to_base64(LOGO_PATH)
+        if b64:
+            ext = Path(LOGO_PATH).suffix.lstrip(".") or "png"
+            return f"data:image/{ext};base64,{b64}"
+    return None
+
+
 def show_sidebar_logo():
     with st.sidebar:
         # Clickable brand → Home. Inline <span>s only: block tags inside an <a>
@@ -338,27 +349,84 @@ section[data-testid="stSidebar"] .block-container {{ padding-top:1rem; }}
 .stSelectbox div[data-baseweb="select"], [data-testid="stChatInput"] {{
   border-radius:10px!important;
 }}
+/* Bidi-aware fields: typed text (and its placeholder) follow their own
+   direction — Arabic → RTL, English → LTR — mirroring the .k-msg chat output.
+   `plaintext` resolves direction from the first strong character per line, so
+   the same box flips correctly as the user switches language. */
+.stTextInput input, .stTextArea textarea, [data-testid="stChatInput"] textarea {{
+  unicode-bidi:plaintext !important; text-align:start !important;
+}}
 
-/* ── Chat ── */
-[data-testid="stChatMessage"] {{
+/* ── Chat — custom message bubbles ── */
+/* Each message is its own st.markdown block: a flex row (.k-row) holding an
+   avatar + a bubble. User rows reverse so the accent bubble sits on the right;
+   assistant rows keep the avatar on the left. */
+.k-row {{ display:flex; align-items:flex-end; gap:10px; margin:2px 0; animation:kIn .28s ease both; }}
+.k-row--user {{ flex-direction:row-reverse; }}
+.k-avatar {{
+  flex:0 0 auto; width:34px; height:34px; border-radius:50%;
+  background:#fff; border:1px solid var(--border); box-shadow:var(--shadow);
+  display:flex; align-items:center; justify-content:center; overflow:hidden;
+}}
+.k-avatar img {{ width:24px; height:auto; display:block; }}
+.k-avatar--emoji {{ font-size:1.1rem; }}
+.k-bubble {{
+  max-width:76%; padding:11px 15px 9px; border-radius:16px;
+  box-shadow:var(--shadow); font-size:.97rem; line-height:1.7;
+}}
+.k-bubble--bot {{
   background:var(--surface); border:1px solid var(--border);
-  border-radius:14px; box-shadow:var(--shadow);
+  color:var(--text); border-bottom-left-radius:5px;
 }}
-/* Bilingual RTL/LTR chat output. Messages are wrapped in `.k-msg` with
-   dir="auto" (see pages/1_Chat_Assistant.py), so direction follows content.
-   `text-align:start` makes alignment follow that direction; logical list
-   padding keeps Arabic bullets/numbers next to their text on the right edge
-   instead of stranding them on the left. */
-[data-testid="stChatMessage"] .k-msg p,
-[data-testid="stChatMessage"] .k-msg li,
-[data-testid="stChatMessage"] .k-msg h1,
-[data-testid="stChatMessage"] .k-msg h2,
-[data-testid="stChatMessage"] .k-msg h3,
-[data-testid="stChatMessage"] .k-msg h4 {{ unicode-bidi:plaintext; text-align:start; }}
-[data-testid="stChatMessage"] .k-msg ul,
-[data-testid="stChatMessage"] .k-msg ol {{
-  padding-left:0; padding-right:0; padding-inline-start:1.4em; margin:.2em 0;
+.k-bubble--user {{
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  color:#fff; border-bottom-right-radius:5px;
 }}
+.k-bubble--user a {{ color:#fff; text-decoration:underline; }}
+/* Bilingual RTL/LTR: `.k-msg dir="auto"` lets direction follow content;
+   logical padding keeps Arabic bullets on the right edge. */
+.k-msg p, .k-msg li, .k-msg h1, .k-msg h2, .k-msg h3, .k-msg h4 {{
+  unicode-bidi:plaintext; text-align:start;
+}}
+.k-msg p:first-child {{ margin-top:0; }}
+.k-msg p:last-child {{ margin-bottom:0; }}
+.k-msg ul, .k-msg ol {{ padding-inline-start:1.3em; margin:.3em 0; }}
+.k-time {{ display:block; font-size:.68rem; opacity:.6; margin-top:5px; text-align:end; }}
+.k-bubble--user .k-time {{ color:#eaecff; opacity:.85; }}
+
+@keyframes kIn {{ from {{ opacity:0; transform:translateY(8px); }} to {{ opacity:1; transform:none; }} }}
+
+/* Typing indicator (shown while the agent thinks, before the first token) */
+.k-typing {{ display:inline-flex; gap:5px; align-items:center; padding:3px 2px; }}
+.k-typing span {{
+  width:7px; height:7px; border-radius:50%; background:var(--muted);
+  animation:kBlink 1.2s infinite ease-in-out;
+}}
+.k-typing span:nth-child(2) {{ animation-delay:.2s; }}
+.k-typing span:nth-child(3) {{ animation-delay:.4s; }}
+@keyframes kBlink {{ 0%,80%,100% {{ opacity:.25; transform:translateY(0); }} 40% {{ opacity:1; transform:translateY(-3px); }} }}
+
+/* Suggested follow-up chips label */
+.k-suggest-label {{ color:var(--muted); font-size:.8rem; font-weight:600; margin:10px 2px 2px; }}
+
+/* Ticket detail (CRM) — single-language, RTL, aligned rows */
+.k-ticket {{
+  background:var(--surface); border:1px solid var(--border); border-radius:12px;
+  padding:14px 16px; box-shadow:var(--shadow); margin-bottom:8px;
+}}
+.k-ticket__group + .k-ticket__group {{ margin-top:14px; padding-top:12px; border-top:1px solid var(--border); }}
+.k-ticket__head {{ font-weight:800; color:var(--accent); font-size:.95rem; margin-bottom:6px; }}
+.k-ticket__row {{ display:flex; gap:12px; padding:5px 0; border-bottom:1px dashed var(--border); font-size:.9rem; }}
+.k-ticket__row:last-child {{ border-bottom:none; }}
+.k-ticket__label {{ flex:0 0 42%; color:var(--muted); font-weight:600; }}
+.k-ticket__val {{ flex:1 1 auto; unicode-bidi:plaintext; color:var(--text); word-break:break-word; }}
+
+/* Polished welcome / empty state */
+.k-welcome {{ text-align:center; padding:24px 14px 6px; }}
+.k-welcome__wave {{ font-size:2.6rem; display:inline-block; animation:kFloat 3s ease-in-out infinite; }}
+.k-welcome h3 {{ margin:8px 0 4px; font-size:1.4rem; color:var(--text); font-weight:800; }}
+.k-welcome p {{ color:var(--muted); margin:0; }}
+@keyframes kFloat {{ 0%,100% {{ transform:translateY(0); }} 50% {{ transform:translateY(-6px); }} }}
 
 /* ── Misc ── */
 hr {{ border-color:var(--border)!important; }}

@@ -3,6 +3,7 @@ Page 2 — CRM Dashboard
 View, search, and filter leads with Plotly analytics charts.
 """
 
+import html
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -19,7 +20,12 @@ from src.database.crm_repository import (
     get_score_distribution, get_leads_over_time, update_lead_status,
 )
 from src.database.mongodb import ping
-from src.ui.branding import page_header, is_dark, active_palette
+from src.ui.branding import page_header, is_dark, active_palette, inject_global_css
+
+# Re-assert global CSS from within the page so a direct/first load is styled
+# (app.py's pre-nav inject doesn't stick until a rerun). See the note in
+# pages/1_Chat_Assistant.py.
+inject_global_css()
 
 _P = active_palette()
 PLOTLY_TEMPLATE = "plotly_dark" if is_dark() else "plotly_white"
@@ -282,49 +288,74 @@ else:
     idx = options.index(selected)
     lead = leads[idx]
 
-    def _row(label, value):
-        value = value if (value not in (None, "", [])) else "—"
+    # Arabic display maps for enum-style values so the ticket reads in one
+    # language end to end (labels + these values are all Arabic).
+    LANG_AR = {"arabic": "العربية", "english": "الإنجليزية"}
+    TEMP_AR = {"hot": "🔥 ساخن", "warm": "🌤️ دافئ", "cold": "❄️ بارد"}
+    STATUS_AR = {"new": "جديد", "contacted": "تم التواصل", "qualified": "مؤهل",
+                 "converted": "تم التحويل", "lost": "مفقود"}
+    LEVEL_AR = {"beginner": "مبتدئ", "intermediate": "متوسط", "advanced": "متقدم"}
+    BUDGET_AR = {"low": "منخفضة", "medium": "متوسطة", "high": "مرتفعة"}
+    CHANNEL_AR = {"whatsapp": "واتساب", "phone": "هاتف", "email": "بريد إلكتروني"}
+
+    def _fmt(value, mapping=None):
+        if value in (None, "", []):
+            return "—"
         if isinstance(value, list):
-            value = "، ".join(value) if value else "—"
-        return f"- **{label}:** {value}\n"
+            return "، ".join(html.escape(str(x)) for x in value) if value else "—"
+        if mapping and value in mapping:
+            return html.escape(mapping[value])
+        return html.escape(str(value))
+
+    def _group(title, rows):
+        items = "".join(
+            f"<div class='k-ticket__row'>"
+            f"<span class='k-ticket__label'>{lbl}</span>"
+            f"<span class='k-ticket__val' dir='auto'>{val}</span>"
+            f"</div>"
+            for lbl, val in rows
+        )
+        return f"<div class='k-ticket__group'><div class='k-ticket__head'>{title}</div>{items}</div>"
 
     score = lead.get("lead_score", 0)
-    score_txt = f"{score:.0%}" if isinstance(score, (int, float)) else score
+    score_txt = f"{score:.0%}" if isinstance(score, (int, float)) else html.escape(str(score))
+
+    who = _group("👤 بيانات العميل", [
+        ("الاسم", _fmt(lead.get("name"))),
+        ("الهاتف", _fmt(lead.get("phone"))),
+        ("واتساب", _fmt(lead.get("whatsapp"))),
+        ("البريد الإلكتروني", _fmt(lead.get("email"))),
+        ("الموقع", _fmt(lead.get("location"))),
+        ("اللغة", _fmt(lead.get("language"), LANG_AR)),
+        ("اللهجة", _fmt(lead.get("dialect"))),
+        ("قناة التواصل", _fmt(lead.get("contact_channel"), CHANNEL_AR)),
+        ("أفضل وقت للتواصل", _fmt(lead.get("best_contact_time"))),
+    ])
+    want = _group("🎯 ما الذي يريده", [
+        ("الاهتمام", _fmt(lead.get("interest_area"))),
+        ("المنتجات محل الاهتمام", _fmt(lead.get("products_of_interest"))),
+        ("التوصية", _fmt(lead.get("recommended_product"))),
+        ("الهدف", _fmt(lead.get("goal"))),
+        ("المستوى", _fmt(lead.get("current_level"), LEVEL_AR)),
+        ("المتطلبات السابقة", _fmt(lead.get("prerequisites"))),
+    ])
+    likely = _group("📊 احتمالية الشراء", [
+        ("الدرجة", score_txt),
+        ("الحرارة", _fmt(lead.get("temperature"), TEMP_AR)),
+        ("إشارات الشراء", _fmt(lead.get("buying_signals"))),
+        ("حساسية الميزانية", _fmt(lead.get("budget_sensitivity"), BUDGET_AR)),
+        ("الاعتراضات", _fmt(lead.get("objections"))),
+    ])
+    happened = _group("📝 ماذا حدث", [
+        ("ملخص المحادثة", _fmt(lead.get("conversation_summary"))),
+        ("الإجراء التالي الموصى به", _fmt(lead.get("next_action"))),
+        ("الحالة", _fmt(lead.get("status"), STATUS_AR)),
+        ("تاريخ الإنشاء", html.escape(str(df.iloc[idx]["Created"]))),
+    ])
+
     dc1, dc2 = st.columns(2)
-    with dc1:
-        st.markdown("**👤 من هو العميل / Who**")
-        md = (_row("الاسم / Name", lead.get("name"))
-              + _row("الهاتف / Phone", lead.get("phone"))
-              + _row("واتساب / WhatsApp", lead.get("whatsapp"))
-              + _row("البريد / Email", lead.get("email"))
-              + _row("الموقع / Location", lead.get("location"))
-              + _row("اللغة / Language", lead.get("language"))
-              + _row("اللهجة / Dialect", lead.get("dialect"))
-              + _row("قناة التواصل / Channel", lead.get("contact_channel"))
-              + _row("أفضل وقت / Best time", lead.get("best_contact_time")))
-        st.markdown(md)
-        st.markdown("**🎯 ماذا يريد / What they want**")
-        md = (_row("الاهتمام / Interest", lead.get("interest_area"))
-              + _row("منتجات محل الاهتمام / Products", lead.get("products_of_interest"))
-              + _row("التوصية / Recommended", lead.get("recommended_product"))
-              + _row("الهدف / Goal", lead.get("goal"))
-              + _row("المستوى / Level", lead.get("current_level"))
-              + _row("المتطلبات / Prerequisites", lead.get("prerequisites")))
-        st.markdown(md)
-    with dc2:
-        st.markdown("**📊 احتمالية الشراء / How likely**")
-        md = (_row("الدرجة / Score", score_txt)
-              + _row("الحرارة / Temperature", lead.get("temperature"))
-              + _row("إشارات الشراء / Buying signals", lead.get("buying_signals"))
-              + _row("حساسية الميزانية / Budget", lead.get("budget_sensitivity"))
-              + _row("الاعتراضات / Objections", lead.get("objections")))
-        st.markdown(md)
-        st.markdown("**📝 ماذا حدث / What happened**")
-        md = (_row("ملخص المحادثة / Summary", lead.get("conversation_summary"))
-              + _row("الإجراء التالي / Next action", lead.get("next_action"))
-              + _row("الحالة / Status", lead.get("status"))
-              + _row("التاريخ / Created", df.iloc[idx]["Created"]))
-        st.markdown(md)
+    dc1.markdown(f"<div class='k-ticket' dir='rtl'>{who}{want}</div>", unsafe_allow_html=True)
+    dc2.markdown(f"<div class='k-ticket' dir='rtl'>{likely}{happened}</div>", unsafe_allow_html=True)
 
     # Quick status update
     st.divider()

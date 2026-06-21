@@ -36,6 +36,9 @@ st.set_page_config(
 
 # ── Landing page ────────────────────────────────────────────────────────────────
 def home():
+    # Self-inject so the landing page is styled on first paint (the pre-nav
+    # inject_global_css() below doesn't stick until a rerun).
+    inject_global_css()
     st.markdown(
         "<div class='k-hero'>"
         f"<div style='display:flex;justify-content:center;'>{brand_mark(120)}</div>"
