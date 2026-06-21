@@ -8,6 +8,9 @@ font = "sans serif"
 
 [client]
 toolbarMode = "minimal"
+# Show full error details in the app UI (temporary — to diagnose the Streamlit
+# Cloud import error without digging through logs; revert once resolved).
+showErrorDetails = "full"
 
 [server]
 headless = true
