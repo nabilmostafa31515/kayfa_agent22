@@ -249,5 +249,3 @@ def get_leads_over_time() -> list[dict]:
     ]
     return [{"date": d["_id"], "count": d["count"]}
             for d in _db().aggregate(pipeline)]
-
-# cache-bust: force Streamlit Cloud bytecode refresh (2026-06-21)

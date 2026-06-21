@@ -13,26 +13,10 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-# TEMP DIAGNOSTIC — surface the real cause of the Streamlit Cloud ImportError
-# directly on the page (the UI message is redacted). Remove once resolved.
-try:
-    from src.agents.lead_qualifier import (
-        is_qualified, lead_temperature, detect_dialect,
-        detect_current_level, detect_budget_sensitivity,
-    )
-except Exception as _imp_err:
-    import traceback as _tb
-    st.error(f"🩺 import failed → {type(_imp_err).__name__}: {_imp_err}")
-    st.code("Python: " + sys.version)
-    try:
-        import importlib as _il
-        _lq = _il.import_module("src.agents.lead_qualifier")
-        st.code("lead_qualifier path: " + getattr(_lq, "__file__", "?"))
-        st.code("names available: "
-                + ", ".join(n for n in dir(_lq) if not n.startswith("_")))
-    except Exception as _e2:
-        st.code("module import error:\n" + _tb.format_exc())
-    st.stop()
+from src.agents.lead_qualifier import (
+    is_qualified, lead_temperature, detect_dialect,
+    detect_current_level, detect_budget_sensitivity,
+)
 from src.database.crm_repository import create_lead
 from src.ui.branding import page_header, logo_data_uri, inject_global_css
 

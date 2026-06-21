@@ -13,34 +13,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-# TEMP DIAGNOSTIC — surface the real cause of the Streamlit Cloud ImportError
-# directly on the page (the UI message is redacted). Remove once resolved.
-try:
-    from src.database.crm_repository import (
-        get_all_leads, search_leads, get_lead_stats,
-        get_leads_by_interest, get_leads_by_status,
-        get_leads_by_language, get_leads_by_temperature,
-        get_score_distribution, get_leads_over_time, update_lead_status,
-    )
-except Exception as _imp_err:
-    import os as _os, traceback as _tb
-    st.error(f"🩺 crm_repository import failed → {type(_imp_err).__name__}: {_imp_err}")
-    st.code("Python: " + sys.version)
-    try:
-        import importlib as _il
-        _m = _il.import_module("src.database.crm_repository")
-        _f = getattr(_m, "__file__", "?")
-        st.code(f"crm_repository path: {_f}")
-        try:
-            st.code(f"source mtime: {_os.path.getmtime(_f)}")
-        except Exception:
-            pass
-        st.code("names available: " + ", ".join(n for n in dir(_m) if not n.startswith("_")))
-        st.code("has get_leads_by_temperature: "
-                + str(hasattr(_m, "get_leads_by_temperature")))
-    except Exception:
-        st.code("module import error:\n" + _tb.format_exc())
-    st.stop()
+from src.database.crm_repository import (
+    get_all_leads, search_leads, get_lead_stats,
+    get_leads_by_interest, get_leads_by_status,
+    get_leads_by_language, get_leads_by_temperature,
+    get_score_distribution, get_leads_over_time, update_lead_status,
+)
 from src.database.mongodb import ping
 from src.ui.branding import page_header, is_dark, active_palette, inject_global_css
 
