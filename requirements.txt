@@ -13,6 +13,7 @@ plotly>=5.22.0
 pandas>=2.2.2
 openai>=1.30.0
 tiktoken>=0.7.0
+pydantic>=2.5.0
 transformers<4.50
 torch
 torchvision

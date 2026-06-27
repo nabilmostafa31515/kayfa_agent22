@@ -15,6 +15,12 @@ Workflow:
     CRM Save (if qualified)
         ↓
     Final Response
+
+Part 2 (monitoring): ``stream_chat`` is instrumented with a ``TurnRecorder`` that
+automatically writes a per-LLM-call ``usage_logs`` row and a per-message
+``behavior_logs`` trace (prompt → reasoning → retrieved context → sources → tool
+calls/args/results → final response → latency → tokens → cost). This is purely
+additive — the chat behaviour and outputs are identical to Part 1.
 """
 
 import logging
@@ -35,6 +41,11 @@ from src.agents.lead_qualifier import (
     compute_lead_score, is_qualified, detect_intent_stage, extract_language
 )
 from src.prompts.system_prompt import SYSTEM_PROMPT
+from src.runtime_context import set_current_user_id
+from src.database.cost_repository import record_cost
+from src.config.pricing import infer_chat_provider
+from src.config.monitoring import get_config
+from src.monitoring.recorder import TurnRecorder
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -43,32 +54,54 @@ logger = logging.getLogger(__name__)
 
 TOOLS = [search_courses, search_roadmaps, retrieve_policy, save_lead, get_lead, update_lead]
 TOOL_MAP = {t.name: t for t in TOOLS}
-MAX_TOOL_ITERATIONS = 5
+# Cap on tool round-trips. The KB context is injected up front, so the model
+# usually answers in one turn; 3 bounds worst-case latency without hurting
+# accuracy (each extra iteration is a full LLM round-trip).
+MAX_TOOL_ITERATIONS = 3
 
 # ── LLM ───────────────────────────────────────────────────────────────────────
 
-def get_llm():
-    # Supports OpenAI and OpenAI-compatible gateways (e.g. OpenRouter) via
-    # OPENAI_BASE_URL / OPENAI_MODEL. Falls back to OpenAI's gpt-4o.
+def resolve_llm_config() -> tuple[str | None, str | None, str, str]:
+    """Resolve (api_key, base_url, model, provider) for the chat LLM.
+
+    Supports OpenAI and OpenAI-compatible gateways (Groq, OpenRouter) via
+    OPENAI_BASE_URL / OPENAI_MODEL. A provider key MUST hit its own endpoint, not
+    OpenAI's default, or it 401s; if the base URL wasn't configured we auto-route
+    by key prefix and pick a sane default model. ``provider`` is inferred for
+    usage-log attribution and mirrors the routing below.
+    """
     api_key = os.getenv("OPENAI_API_KEY")
     base_url = os.getenv("OPENAI_BASE_URL") or None
     model = os.getenv("OPENAI_MODEL", "gpt-4o")
 
-    # An OpenRouter key (sk-or-…) MUST hit OpenRouter, not OpenAI's default
-    # endpoint, or it 401s ("Incorrect API key"). If the base URL wasn't
-    # configured on the deploy, auto-route OpenRouter keys and pick a sane
-    # OpenRouter-formatted default model so a bare "gpt-4o" doesn't 404.
-    if base_url is None and api_key and api_key.startswith("sk-or-"):
+    if base_url is None and api_key and api_key.startswith("gsk_"):
+        # Groq — fast, OpenAI-compatible. https://console.groq.com/keys
+        base_url = "https://api.groq.com/openai/v1"
+        if not os.getenv("OPENAI_MODEL"):
+            # gpt-oss-120b streams tool calls reliably on Groq (the Llama-3.3
+            # models malform streamed tool calls). Fast + strong at grounding.
+            model = "openai/gpt-oss-120b"
+    elif base_url is None and api_key and api_key.startswith("sk-or-"):
         base_url = "https://openrouter.ai/api/v1"
         if not os.getenv("OPENAI_MODEL"):
             # Default to a FREE OpenRouter model so an unconfigured deploy
             # doesn't silently spend credits on a paid model (e.g. gpt-4o).
             model = "openai/gpt-oss-120b:free"
 
+    provider = infer_chat_provider(model, base_url, api_key)
+    return api_key, base_url, model, provider
+
+
+def get_llm():
+    api_key, base_url, model, _provider = resolve_llm_config()
+
     return ChatOpenAI(
         model=model,
         temperature=0.4,
         streaming=True,
+        # Ask the gateway to include token usage in the streamed response so we
+        # can record per-turn cost (works on OpenAI + Groq's compatible API).
+        stream_usage=True,
         openai_api_key=api_key,
         base_url=base_url,
         # Bound completion length. Without this, ChatOpenAI requests the model's
@@ -113,8 +146,8 @@ def knowledge_retrieval_node(state: AgentState) -> AgentState:
         (m["content"] for m in reversed(messages) if m["role"] == "user"), ""
     )
     try:
-        docs = similarity_search(last_user, k=3)
-        state["context"] = "\n\n---\n\n".join(d.page_content for d in docs)[:1200]
+        docs = similarity_search(last_user, k=4)
+        state["context"] = "\n\n---\n\n".join(d.page_content for d in docs)[:2200]
     except Exception as e:
         logger.error(f"Knowledge retrieval failed: {e}")
         state["context"] = ""
@@ -186,7 +219,12 @@ def build_graph() -> StateGraph:
     graph.add_edge("intent_detection", "knowledge_retrieval")
     graph.add_edge("knowledge_retrieval", "agent")
     graph.add_edge("agent", "lead_check")
-    graph.add_conditional_edges("lead_check", should_save_lead)
+    graph.add_conditional_edges("lead_check", should_save_lead, {
+        # Both branches terminate: lead capture is handled by the chat UI form;
+        # the graph itself simply ends after the agent has answered.
+        "prompt_lead_capture": END,
+        END: END,
+    })
 
     return graph.compile()
 
@@ -203,7 +241,7 @@ def get_graph():
     return _graph
 
 
-def stream_chat(messages: list[dict], meta: dict):
+def stream_chat(messages: list[dict], meta: dict, user_id: str = "", conversation_id: str = ""):
     """Generator variant of `chat` for live token streaming in the UI.
 
     Yields the assistant's reply in text chunks as the model generates them.
@@ -212,10 +250,15 @@ def stream_chat(messages: list[dict], meta: dict):
     `response` once streaming completes. The assistant turn is appended to
     `messages` at the end (without a timestamp — the UI owns that).
 
-    Intent scoring and KB retrieval run up front (rule-based / fast), then the
-    tool-calling loop streams each LLM turn; tool-call turns emit little or no
-    visible text, and the final answer streams naturally.
+    `user_id` is the signed-in user; it's published to the runtime context so the
+    save_lead tool stamps any captured lead with this user, and used (with
+    `conversation_id`) to record this turn's token cost.
+
+    Part 2: every step is captured by a ``TurnRecorder``, which persists a usage
+    log per LLM call and a full behaviour trace for the message. Recording is
+    best-effort and never affects the streamed reply.
     """
+    set_current_user_id(user_id)
     last_user = next(
         (m["content"] for m in reversed(messages) if m["role"] == "user"), ""
     )
@@ -223,13 +266,29 @@ def stream_chat(messages: list[dict], meta: dict):
     meta["language"] = extract_language(last_user)
     meta["lead_score"] = compute_lead_score(messages)
 
+    # ── Monitoring: open a recorder for this turn (Part 2) ───────────────────────
+    api_key, base_url, model, provider = resolve_llm_config()
+    cfg = get_config()
+    recorder = TurnRecorder(
+        user_id=user_id, conversation_id=conversation_id,
+        provider=provider, model=model,
+        embedding_provider=cfg.embedding_provider,
+        embedding_model=cfg.embedding_model,
+    )
+    recorder.set_prompt(last_user)
+
     try:
-        # k=3 (not 5) and a hard length cap keep the prompt within tight
-        # input-token budgets (e.g. free OpenRouter tiers ~2.4k tokens).
-        docs = similarity_search(last_user, k=3)
-        context = "\n\n---\n\n".join(d.page_content for d in docs)[:1200]
+        # Routed, alias-expanded retrieval (see vectorstore.similarity_search).
+        # k=4 + a generous cap gives the model richer grounding now that Groq's
+        # gpt-oss-120b has ample input budget (no free-tier token squeeze).
+        with recorder.time_retrieval():
+            docs = similarity_search(last_user, k=4)
+        recorder.record_retrieval(last_user, docs)
+        context = "\n\n---\n\n".join(d.page_content for d in docs)[:2200]
     except Exception as e:
         logger.error(f"Knowledge retrieval failed: {e}")
+        docs = []
+        recorder.record_retrieval(last_user, docs)
         context = ""
 
     # Don't embed the history in the system prompt — it's already sent as the
@@ -244,27 +303,56 @@ def stream_chat(messages: list[dict], meta: dict):
 
     llm = get_llm()
     final_text = ""
+    in_tokens = out_tokens = 0      # summed across the tool-loop round-trips
     for _ in range(MAX_TOOL_ITERATIONS):
-        gathered = None  # AIMessageChunks accumulate (incl. tool_calls) via +
-        for chunk in llm.stream(lc_messages):
-            gathered = chunk if gathered is None else gathered + chunk
-            if chunk.content:
-                final_text += chunk.content
-                yield chunk.content
+        tool_calls = None
+        with recorder.llm_call() as call:
+            gathered = None  # AIMessageChunks accumulate (incl. tool_calls) via +
+            for chunk in llm.stream(lc_messages):
+                gathered = chunk if gathered is None else gathered + chunk
+                if chunk.content:
+                    final_text += chunk.content
+                    yield chunk.content
 
-        tool_calls = getattr(gathered, "tool_calls", None)
+            usage = getattr(gathered, "usage_metadata", None)
+            if usage:
+                ci = usage.get("input_tokens", 0) or 0
+                co = usage.get("output_tokens", 0) or 0
+                in_tokens += ci
+                out_tokens += co
+                call.set_usage(ci, co)
+            call.set_content(getattr(gathered, "content", "") or "")
+
+            tool_calls = getattr(gathered, "tool_calls", None)
+            call.mark_tool_calls(len(tool_calls) if tool_calls else 0)
+
         if not tool_calls:
             break
 
         lc_messages.append(gathered)
-        for call in tool_calls:
-            tool = TOOL_MAP.get(call["name"])
-            try:
-                output = tool.invoke(call["args"]) if tool else f"Unknown tool: {call['name']}"
-            except Exception as e:
-                logger.error(f"Tool {call['name']} failed: {e}")
-                output = f"Tool error: {e}"
-            lc_messages.append(ToolMessage(content=str(output), tool_call_id=call["id"]))
+        for tc in tool_calls:
+            tool = TOOL_MAP.get(tc["name"])
+            with recorder.tool_call(tc["name"], tc.get("args", {})) as tctx:
+                try:
+                    output = tool.invoke(tc["args"]) if tool else f"Unknown tool: {tc['name']}"
+                except Exception as e:
+                    logger.error(f"Tool {tc['name']} failed: {e}")
+                    output = f"Tool error: {e}"
+                    tctx.set_error(str(e))
+                tctx.set_result(output)
+            lc_messages.append(ToolMessage(content=str(output), tool_call_id=tc["id"]))
+
+    # Record this turn's token cost (best-effort), attributed to the user.
+    model_name = getattr(llm, "model_name", None) or os.getenv("OPENAI_MODEL", "")
+    meta["input_tokens"] = in_tokens
+    meta["output_tokens"] = out_tokens
+    if in_tokens or out_tokens:
+        record_cost(user_id, conversation_id, model_name, in_tokens, out_tokens)
+
+    # Persist the full monitoring trace + per-call usage logs (Part 2).
+    recorder.set_final_response(final_text)
+    recorder.finalize()
+    meta["message_id"] = recorder.message_id
 
     meta["response"] = final_text
     messages.append({"role": "assistant", "content": final_text})

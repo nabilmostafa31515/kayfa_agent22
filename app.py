@@ -55,7 +55,7 @@ def home():
     )
 
     st.write("")
-    c1, c2 = st.columns(2, gap="large")
+    c1, c2, c3 = st.columns(3, gap="large")
     with c1:
         st.markdown(
             "<a class='k-card k-card--link' href='Chat_Assistant' target='_self'>"
@@ -67,9 +67,18 @@ def home():
         )
     with c2:
         st.markdown(
+            "<a class='k-card k-card--link' href='Performance' target='_self'>"
+            "<span class='k-card__title'>📈 Performance</span>"
+            "<span class='k-card__desc'>لوحة المدير لمتابعة التحسّن: معدّل التحويل، جودة العملاء، والاتجاهات أسبوعياً. <b>يتطلب تسجيل دخول.</b></span>"
+            "<span class='k-card__cta'>افتح لوحة الأداء · Open Dashboard →</span>"
+            "</a>",
+            unsafe_allow_html=True,
+        )
+    with c3:
+        st.markdown(
             "<a class='k-card k-card--link' href='CRM_Dashboard' target='_self'>"
             "<span class='k-card__title'>📊 CRM Dashboard</span>"
-            "<span class='k-card__desc'>عرض وإدارة العملاء المحتملين مع تحليلات بيانية وإحصائيات في الوقت الفعلي.</span>"
+            "<span class='k-card__desc'>عرض وإدارة العملاء المحتملين مع تحليلات بيانية. <b>يتطلب تسجيل دخول.</b></span>"
             "<span class='k-card__cta'>افتح اللوحة · Open Dashboard →</span>"
             "</a>",
             unsafe_allow_html=True,
@@ -83,11 +92,34 @@ def home():
 
 
 # ── Navigation ──────────────────────────────────────────────────────────────────
-pages = [
-    st.Page(home, title="Home", icon=":material/home:", default=True),
-    st.Page("pages/1_Chat_Assistant.py", title="Chat Assistant", icon=":material/chat:"),
-    st.Page("pages/2_CRM_Dashboard.py", title="CRM Dashboard", icon=":material/insights:"),
-]
+# Public pages are open to everyone; the Manager Area pages (CRM + Performance)
+# self-gate via require_manager(). Login label reflects the current session.
+from src.auth.manager_auth import is_authenticated
+
+login_title = "Manager Account" if is_authenticated() else "Manager Login"
+login_icon = ":material/account_circle:" if is_authenticated() else ":material/lock:"
+
+pages = {
+    "Kayfa": [
+        st.Page(home, title="Home", icon=":material/home:", default=True),
+        st.Page("pages/1_Chat_Assistant.py", title="Chat Assistant", icon=":material/chat:"),
+    ],
+    "Manager Area": [
+        st.Page("pages/3_Manager_Login.py", title=login_title, icon=login_icon),
+        st.Page("pages/4_Performance.py", title="Performance", icon=":material/trending_up:"),
+        st.Page("pages/2_CRM_Dashboard.py", title="CRM Dashboard", icon=":material/insights:"),
+        st.Page("pages/5_Leads.py", title="Leads", icon=":material/table_rows:"),
+        st.Page("pages/6_Usage.py", title="Usage & Cost", icon=":material/paid:"),
+    ],
+    # Part 2 — AI Monitoring & Optimization (manager-gated, same unified auth).
+    "AI Monitoring": [
+        st.Page("pages/7_Monitoring.py", title="Dashboard", icon=":material/monitoring:"),
+        st.Page("pages/8_Cost_Monitor.py", title="Cost Monitor", icon=":material/payments:"),
+        st.Page("pages/9_Behavior_Trace.py", title="Behavior Trace", icon=":material/account_tree:"),
+        st.Page("pages/10_Optimization.py", title="Optimization", icon=":material/bolt:"),
+        st.Page("pages/11_Analytics.py", title="Analytics", icon=":material/analytics:"),
+    ],
+}
 nav = st.navigation(pages)
 
 # Global chrome — runs on every page before the selected page renders.

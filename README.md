@@ -12,7 +12,9 @@ A production-ready agentic AI sales assistant for [Kayfa](https://kayfa.io) — 
 | 📚 RAG Pipeline | FAISS + SentenceTransformers (multilingual) |
 | 🌍 Bilingual | Arabic (RTL) + English — auto-detected |
 | 💾 CRM | MongoDB Atlas lead storage + CRUD |
-| 📊 Dashboard | Plotly analytics — scores, statuses, trends |
+| 📊 CRM Dashboard | Plotly analytics — scores, statuses, trends |
+| 📈 Performance Dashboard | Manager view — WoW KPIs, conversion funnel & quality trends |
+| 🔐 Manager Login | Single sign-in (env/secrets) gating both dashboards |
 | 🎯 Lead Scoring | Rule-based qualifier (0.0 → 1.0) |
 | 🔒 No Hallucinations | Answers only from KB context |
 

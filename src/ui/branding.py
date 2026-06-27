@@ -135,19 +135,24 @@ def show_sidebar_logo():
 
 def page_header(title: str, subtitle: str | None = None,
                 icon: str | None = None, badge: str | None = None,
-                logo_size: int = 88):
+                logo_size: int = 88, rtl: bool = False):
     """Render a consistent page header: a big logo.jpg brandmark + title.
 
-    The logo is shown prominently (framed in the brand chip) on the left, with
-    the title, optional badge and subtitle on the right.
+    By default the logo sits on the left with the title beside it (LTR). Pass
+    ``rtl=True`` for an Arabic-first layout: the logo moves to the right with
+    the title flowing right-to-left beside it.
     """
     badge_html = f"<span class='badge badge-soft'>{badge}</span>" if badge else ""
     icon_html = f"<span class='k-page-header__icon'>{icon}</span>" if icon else ""
     sub_html = f"<p class='k-page-header__sub'>{subtitle}</p>" if subtitle else ""
     # Emit as a single line — multi-line indented HTML can be misread by the
     # markdown parser as an indented code block (esp. when a piece is empty).
+    # dir pins the layout direction: 'ltr' → logo left; 'rtl' → logo right with
+    # the title/subtitle right-aligned (the layout stays consistent regardless
+    # of the title's script).
+    direction = "rtl" if rtl else "ltr"
     html = (
-        "<div class='k-page-header'>"
+        f"<div class='k-page-header' dir='{direction}'>"
         f"<div class='k-page-header__brand'>{brand_mark(logo_size)}</div>"
         "<div class='k-page-header__body'>"
         "<div class='k-page-header__row'>"
@@ -257,7 +262,16 @@ section[data-testid="stSidebar"] .block-container {{ padding-top:1rem; }}
   display:inline-flex; align-items:center; gap:10px;
 }}
 .k-page-header__icon {{ font-size:1.6rem; }}
-.k-page-header__sub {{ color:var(--muted); margin:.4rem 0 0; font-size:1rem; }}
+.k-page-header__sub {{
+  color:var(--muted); margin:.4rem 0 0; font-size:1rem;
+  /* Direction follows the text: Arabic → RTL (right-aligned), English → LTR. */
+  unicode-bidi:plaintext; text-align:start;
+}}
+/* In an RTL header the title sits on the right beside the logo — pin the
+   subtitle to the right too, even when it's English (plaintext would otherwise
+   left-align it). */
+.k-page-header[dir='rtl'] .k-page-header__sub {{ text-align:right; }}
+.k-page-header[dir='rtl'] .k-page-header__row {{ justify-content:flex-start; }}
 
 /* ── Hero (landing) ── */
 .k-hero {{ text-align:center; padding:14px 16px 6px; }}
@@ -357,6 +371,35 @@ section[data-testid="stSidebar"] .block-container {{ padding-top:1rem; }}
   unicode-bidi:plaintext !important; text-align:start !important;
 }}
 
+/* ── RTL form (Arabic-first lead capture) ── */
+/* The lead form is wrapped in st.container(key="lead-form-rtl"), which Streamlit
+   renders with a real `.st-key-lead-form-rtl` class — a reliable scope (the old
+   empty-<span> + :has() marker got stripped by Streamlit's HTML sanitizer).
+   Everything inside flips to RTL: labels right-align, the 2-col rows lay out
+   right→left (name on the right via direction:rtl), and field text/placeholders
+   start at the right edge. Scoped here so the composer / other pages stay LTR. */
+.st-key-lead-form-rtl {{ direction:rtl; text-align:right; }}
+/* Labels + help/tooltip → right-aligned */
+.st-key-lead-form-rtl [data-testid="stWidgetLabel"] p,
+.st-key-lead-form-rtl [data-testid="stWidgetLabel"] label,
+.st-key-lead-form-rtl [data-testid="stTooltipIcon"],
+.st-key-lead-form-rtl small {{
+  text-align:right; width:100%;
+}}
+/* Field contents (typed text, placeholders, selectbox value) → start at the
+   right edge. plaintext still lets an English email/phone read L-to-R inside. */
+.st-key-lead-form-rtl input,
+.st-key-lead-form-rtl textarea,
+.st-key-lead-form-rtl div[data-baseweb="select"] > div {{
+  text-align:right !important; unicode-bidi:plaintext !important;
+}}
+.st-key-lead-form-rtl input::placeholder,
+.st-key-lead-form-rtl textarea::placeholder {{
+  text-align:right; direction:rtl;
+}}
+/* Note: direction:rtl already lays the 2-column rows right→left (first field on
+   the right), so we must NOT also flex-reverse them — that would cancel out. */
+
 /* ── Chat — custom message bubbles ── */
 /* Each message is its own st.markdown block: a flex row (.k-row) holding an
    avatar + a bubble. User rows reverse so the accent bubble sits on the right;
@@ -427,6 +470,26 @@ section[data-testid="stSidebar"] .block-container {{ padding-top:1rem; }}
 .k-welcome h3 {{ margin:8px 0 4px; font-size:1.4rem; color:var(--text); font-weight:800; }}
 .k-welcome p {{ color:var(--muted); margin:0; }}
 @keyframes kFloat {{ 0%,100% {{ transform:translateY(0); }} 50% {{ transform:translateY(-6px); }} }}
+
+/* ── Manager login ── */
+.k-login {{ text-align:center; padding:26px 14px 8px; }}
+.k-login__brand {{ display:flex; justify-content:center; margin-bottom:10px; }}
+.k-login__title {{
+  margin:.3rem 0 .1rem; font-size:1.5rem; font-weight:800; color:var(--text);
+  unicode-bidi:plaintext;
+}}
+.k-login__sub {{ color:var(--muted); margin:0; font-size:.95rem; unicode-bidi:plaintext; }}
+.k-gate-note {{
+  background:var(--chip-bg); border:1px solid var(--border); border-radius:12px;
+  padding:12px 16px; margin-bottom:14px; color:var(--text); font-weight:600;
+  text-align:center; unicode-bidi:plaintext;
+}}
+.k-gate-note span {{ color:var(--muted); font-weight:500; font-size:.86rem; }}
+.k-signed-in {{
+  background:var(--chip-bg); border:1px solid var(--border); border-radius:10px;
+  padding:8px 12px; margin:6px 0 4px; font-size:.86rem; color:var(--text);
+}}
+.k-signed-in span {{ color:var(--muted); }}
 
 /* ── Misc ── */
 hr {{ border-color:var(--border)!important; }}

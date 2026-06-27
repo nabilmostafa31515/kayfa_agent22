@@ -5,6 +5,7 @@ from langchain.tools import tool
 from src.database.crm_repository import (
     create_lead, get_lead_by_id, update_lead_status
 )
+from src.runtime_context import get_current_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ def save_lead(
     """
     try:
         lead_id = create_lead(
+            user_id=get_current_user_id(),
             name=name,
             phone=phone,
             email=email,

@@ -6,6 +6,7 @@ responses, timestamps, suggested follow-ups, and lead capture.
 
 import re
 import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -18,12 +19,21 @@ from src.agents.lead_qualifier import (
     detect_current_level, detect_budget_sensitivity,
 )
 from src.database.crm_repository import create_lead
+from src.database.messages_repository import save_message
+from src.database.traces_repository import record_trace
+from src.utils.geo import is_recognized_country
 from src.ui.branding import page_header, logo_data_uri, inject_global_css
+from src.auth.user_auth import require_user, current_user_id, logout_button
 
 # Re-assert the global CSS from within the page itself. app.py injects it before
 # nav.run(), but on a first/direct page load that pre-nav <style> doesn't stick
 # until a rerun — injecting here guarantees the styling is present on first paint.
 inject_global_css()
+
+# Gate the chat behind end-user sign-in. require_user() renders the login/sign-up
+# screen and halts the page when no user session is open; otherwise it returns the
+# signed-in user, whose id is stamped on every message and captured lead.
+USER = require_user()
 
 # NOTE: the agent (`stream_chat`) is imported lazily inside the response handler
 # below — its dependency stack (langgraph + langchain + sentence-transformers)
@@ -49,6 +59,11 @@ def _row_html(role: str, content: str, ts: str = "") -> str:
     Streamlit still renders it as markdown, and dir='auto' so direction follows
     the content (Arabic → RTL, English → LTR)."""
     time_html = f"<span class='k-time'>{ts}</span>" if ts else ""
+    # User text is plain — keep the line breaks they typed (markdown would
+    # otherwise collapse single newlines, putting everything on one line).
+    # Assistant text is already markdown, so leave its structure intact.
+    if role == "user":
+        content = content.replace("\n", "<br>")
     msg = f"<div class='k-msg' dir='auto'>\n\n{content}\n\n</div>"
     if role == "user":
         return ("<div class='k-row k-row--user'>"
@@ -75,12 +90,13 @@ def _render_message(msg: dict):
 
 # ── Lead-form validation (bilingual messages) ───────────────────────────────────
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-# E.164-style: a leading "+" then a country code (1–9) and 6–14 more digits.
-# Requiring the "+" guarantees the country code is present.
-_PHONE_RE = re.compile(r"^\+[1-9]\d{6,14}$")
+# E.164-style: a leading "+", a country-code digit (1–9), then 9–14 more digits.
+# Requiring the "+" guarantees the country code is present; the 10–15 total-digit
+# bound rejects too-short / mistyped numbers (e.g. +201123457402 → 12 digits ✓).
+_PHONE_RE = re.compile(r"^\+[1-9]\d{9,14}$")
 
 
-def _validate_lead(name: str, phone: str, email: str) -> list[str]:
+def _validate_lead(name: str, phone: str, email: str, location: str = "") -> list[str]:
     """Return a list of human-readable errors; empty list means valid."""
     errors = []
     if not name.strip():
@@ -88,13 +104,19 @@ def _validate_lead(name: str, phone: str, email: str) -> list[str]:
     if not phone.strip():
         errors.append("رقم الهاتف مطلوب — Phone is required")
     elif not _PHONE_RE.match(re.sub(r"[\s\-()]", "", phone.strip())):
-        # Must be an international number that includes the country code.
-        errors.append("أدخل رقم هاتف دولي يشمل رمز الدولة، مثل ‎+20 10 1234 5678 — "
-                      "Enter a valid international phone with country code (e.g. +20 10 1234 5678)")
+        # Must be an international number that includes the country code and has
+        # a valid length (10–15 digits total).
+        errors.append("أدخل رقم هاتف دولي صحيح يشمل رمز الدولة (10–15 رقمًا)، مثل ‎+201123457402 — "
+                      "Enter a valid international phone with country code, 10–15 digits (e.g. +201123457402)")
     if not email.strip():
         errors.append("البريد الإلكتروني مطلوب — Email is required")
     elif not _EMAIL_RE.match(email.strip()):
         errors.append("بريد إلكتروني غير صالح — Enter a valid email address")
+    # Location is optional, but if provided it must contain a real country name
+    # so gibberish like "Maghr" never reaches the database.
+    if location.strip() and not is_recognized_country(location):
+        errors.append("اسم الدولة غير معروف — اكتب اسم دولة صحيح، مثل: مصر / Egypt — "
+                      "Unrecognized country — enter a valid country (e.g. Egypt, السعودية)")
     return errors
 
 
@@ -129,6 +151,11 @@ FOLLOWUPS = {
 
 def _queue_user_message(text: str):
     st.session_state.messages.append({"role": "user", "content": text, "time": _now()})
+    # Persist the user turn + behavior trace, stamped with the signed-in user's id.
+    uid = current_user_id()
+    convo = st.session_state.get("conversation_id", "")
+    save_message(uid, "user", text, convo)
+    record_trace(uid, "message_sent", convo, props={"len": len(text)})
     st.rerun()
 
 
@@ -140,11 +167,16 @@ defaults = {
 for k, v in defaults.items():
     st.session_state.setdefault(k, v)
 
+# One conversation id per chat session — groups this user's messages together.
+if not st.session_state.get("conversation_id"):
+    st.session_state.conversation_id = uuid.uuid4().hex
+
 # ── Header ─────────────────────────────────────────────────────────────────────
 page_header(
     "المساعد الذكي",
     subtitle="اسألني عن الكورسات والمسارات والدبلومات — بالعربية أو الإنجليزية",
     badge="Kayfa AI Sales Agent",
+    rtl=True,
 )
 
 # ── Status bar ────────────────────────────────────────────────────────────────
@@ -159,6 +191,22 @@ c2.markdown(f"<div style='text-align:center;'><small style='color:var(--muted);'
             f"<span class='badge badge-soft'>{st.session_state.intent_stage}</span></div>", unsafe_allow_html=True)
 c3.markdown(f"<div style='text-align:center;'><small style='color:var(--muted);'>Language</small><br>"
             f"<span class='badge badge-soft'>{lang_label}</span></div>", unsafe_allow_html=True)
+
+# Dedicated registration button — lets the client open the capture form at any
+# time, not only once the lead score crosses the qualification threshold.
+st.write("")
+rc1, rc2, rc3 = st.columns([1, 2, 1])
+with rc2:
+    if not st.session_state.lead_saved:
+        if st.button("📝 سجّل بياناتك الآن  ·  Register now",
+                     width="stretch", type="primary", key="open_reg_main"):
+            st.session_state.show_lead_form = True
+            record_trace(current_user_id(), "lead_form_opened",
+                         st.session_state.get("conversation_id", ""),
+                         props={"source": "main_button"})
+            st.rerun()
+    else:
+        st.success("✅ تم تسجيل بياناتك — Your details are registered.")
 
 st.divider()
 
@@ -191,11 +239,6 @@ if not st.session_state.messages:
 for msg in st.session_state.messages:
     _render_message(msg)
 
-# ── Input ──────────────────────────────────────────────────────────────────────
-prompt = st.chat_input("اكتب رسالتك هنا... | Type your message here…")
-if prompt and prompt.strip():
-    _queue_user_message(prompt.strip())
-
 # ── Generate a streamed response for any pending user turn ──────────────────────
 msgs = st.session_state.messages
 if msgs and msgs[-1]["role"] == "user":
@@ -205,13 +248,25 @@ if msgs and msgs[-1]["role"] == "user":
     acc = ""
     try:
         from src.agents.sales_agent import stream_chat  # lazy (heavy import)
-        for token in stream_chat(msgs, meta):            # appends assistant turn
+        uid = current_user_id()
+        convo = st.session_state.get("conversation_id", "")
+        # Pass the signed-in user's id + conversation so the agent stamps any
+        # captured lead and records this turn's token cost.
+        for token in stream_chat(msgs, meta, user_id=uid, conversation_id=convo):
             acc += token
             placeholder.markdown(_row_html("assistant", acc), unsafe_allow_html=True)
 
-        # stream_chat appended the assistant message; stamp it and sync metadata.
+        # stream_chat appended the assistant message; stamp it, persist it
+        # (with the user's id), trace it, and sync metadata.
         if msgs and msgs[-1]["role"] == "assistant":
             msgs[-1]["time"] = _now()
+            save_message(uid, "assistant", msgs[-1]["content"], convo)
+            record_trace(uid, "assistant_replied", convo, props={
+                "intent_stage": meta.get("intent_stage"),
+                "lead_score": meta.get("lead_score"),
+                "input_tokens": meta.get("input_tokens"),
+                "output_tokens": meta.get("output_tokens"),
+            })
         st.session_state.intent_stage = meta.get("intent_stage", st.session_state.intent_stage)
         st.session_state.language = meta.get("language", st.session_state.language)
         st.session_state.lead_score = meta.get("lead_score", st.session_state.lead_score)
@@ -239,10 +294,12 @@ if (msgs and msgs[-1]["role"] == "assistant"
 
 # ── Lead capture form ─────────────────────────────────────────────────────────
 if st.session_state.show_lead_form and not st.session_state.lead_saved:
-    with st.container(border=True):
+    # key="lead-form-rtl" → Streamlit adds a `.st-key-lead-form-rtl` class on this
+    # container, which branding.py uses to flip the whole form to RTL (Arabic-first).
+    with st.container(border=True, key="lead-form-rtl"):
         st.markdown(
-            "<h3 style='margin-top:0;'>🌟 يبدو أنك مهتم بالانضمام!</h3>"
-            "<p style='color:var(--muted);'>أكمل بياناتك وسيتواصل معك فريق كيفا في أقرب وقت.</p>",
+            "<div dir='rtl'><h3 style='margin-top:0;'>🌟 يبدو أنك مهتم بالانضمام!</h3>"
+            "<p style='color:var(--muted);'>أكمل بياناتك وسيتواصل معك فريق كيفا في أقرب وقت.</p></div>",
             unsafe_allow_html=True,
         )
 
@@ -258,7 +315,11 @@ if st.session_state.show_lead_form and not st.session_state.lead_saved:
             email = st.text_input("البريد الإلكتروني / Email *")
 
             cc, cd = st.columns(2)
-            location = cc.text_input("المدينة / الدولة — City / Country")
+            location = cc.text_input(
+                "المدينة / الدولة — City / Country",
+                placeholder="مثال: القاهرة، مصر · e.g. Cairo, Egypt",
+                help="اذكر اسم الدولة · Include the country name",
+            )
             best_time = cd.text_input("أفضل وقت للتواصل / Best time to contact")
             channel = st.selectbox(
                 "قناة التواصل المفضلة / Preferred contact channel",
@@ -282,7 +343,7 @@ if st.session_state.show_lead_form and not st.session_state.lead_saved:
                                               width="stretch", type="primary")
 
         if submitted:
-            errors = _validate_lead(name, phone, email)
+            errors = _validate_lead(name, phone, email, location)
             if errors:
                 # clear_on_submit=False keeps what the user typed; we only point
                 # out what needs fixing instead of wiping the whole form.
@@ -307,6 +368,7 @@ if st.session_state.show_lead_form and not st.session_state.lead_saved:
                 try:
                     with st.spinner("جارٍ حفظ بياناتك… | Saving…"):
                         lead_id = create_lead(
+                            user_id=current_user_id(),
                             name=name.strip(), phone=phone.strip(), email=email.strip(),
                             language=st.session_state.language,
                             interest_area=interest or stage,
@@ -331,14 +393,48 @@ if st.session_state.show_lead_form and not st.session_state.lead_saved:
                         )
                     st.session_state.lead_saved = True
                     st.session_state.show_lead_form = False
+                    record_trace(current_user_id(), "lead_captured",
+                                 st.session_state.get("conversation_id", ""),
+                                 props={"lead_id": lead_id,
+                                        "lead_score": st.session_state.lead_score,
+                                        "intent_stage": stage})
                     st.toast("✅ تم إرسال بياناتك — Submitted!", icon="🎉")
                     st.success(f"✅ تم إرسال بياناتك بنجاح! سيتواصل معك الفريق قريباً. (ID: {lead_id})")
                 except Exception as e:
                     st.error(f"تعذّر حفظ البيانات، حاول مرة أخرى — Couldn't save, please retry.\n\n`{e}`")
 
+# ── Composer (multi-line input, pinned at the bottom) ───────────────────────────
+# A text area instead of st.chat_input so the user can add line breaks (Enter)
+# and send multi-line messages. The form submits on the ➤ button or Ctrl+Enter;
+# clear_on_submit empties the box after sending.
+with st.form("composer", clear_on_submit=True):
+    ic, bc = st.columns([6, 1])
+    user_text = ic.text_area(
+        "message",
+        height=80,
+        label_visibility="collapsed",
+        placeholder="اكتب رسالتك هنا… (Enter لسطر جديد · للإرسال: زر ➤ أو Ctrl+Enter)\n"
+                    "Type here — Enter for a new line · Send with ➤ or Ctrl+Enter",
+    )
+    sent = bc.form_submit_button("➤", width="stretch", type="primary")
+if sent and user_text.strip():
+    _queue_user_message(user_text.strip())
+
 # ── Sidebar ────────────────────────────────────────────────────────────────────
+# Signed-in account + sign-out at the top of the sidebar.
+logout_button()
+
 with st.sidebar:
     st.divider()
+    if not st.session_state.lead_saved:
+        if st.button("📝 سجّل بياناتك | Register", width="stretch",
+                     type="primary", key="open_reg_side"):
+            st.session_state.show_lead_form = True
+            record_trace(current_user_id(), "lead_form_opened",
+                         st.session_state.get("conversation_id", ""),
+                         props={"source": "sidebar_button"})
+            st.rerun()
+
     st.markdown("**💡 أسئلة سريعة:**")
     quick_questions = [
         "ما هي دبلومة الـ AI؟",
@@ -358,4 +454,5 @@ with st.sidebar:
         st.session_state.intent_stage = "browsing"
         st.session_state.lead_saved = False
         st.session_state.show_lead_form = False
+        st.session_state.conversation_id = uuid.uuid4().hex  # start a new conversation
         st.rerun()

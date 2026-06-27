@@ -34,6 +34,8 @@ def create_lead(
     lead_score: float = 0.0,
     conversation_summary: str = "",
     *,
+    # ── Attribution ──────────────────────────────────────────────────────────
+    user_id: str = "",
     # ── Who ──────────────────────────────────────────────────────────────────
     whatsapp: str = "",
     location: str = "",
@@ -69,6 +71,8 @@ def create_lead(
         return list(v)
 
     doc = {
+        # Attribution — the signed-in user this lead came from ("" if anonymous)
+        "user_id": user_id,
         # Who
         "name": name,
         "phone": phone,
@@ -249,3 +253,77 @@ def get_leads_over_time() -> list[dict]:
     ]
     return [{"date": d["_id"], "count": d["count"]}
             for d in _db().aggregate(pipeline)]
+
+
+# ── PERFORMANCE / IMPROVEMENT ──────────────────────────────────────────────────
+# Powers the manager's "monitor improvement" dashboard.
+
+# new → contacted → qualified → converted (lost sits outside the funnel).
+FUNNEL_STAGES = ["new", "contacted", "qualified", "converted"]
+
+
+def get_conversion_funnel() -> list[dict]:
+    """Counts per pipeline stage in funnel order, padding missing stages with 0.
+
+    Funnel semantics: each stage counts leads that reached *at least* that stage,
+    so the bars are monotonically non-increasing. We derive reached-counts from
+    the raw per-status tallies (a 'converted' lead has also been 'qualified',
+    'contacted' and 'new')."""
+    by_status = {d["status"]: d["count"] for d in get_leads_by_status()}
+    # raw count currently sitting in each status (lost excluded from the funnel)
+    raw = {s: by_status.get(s, 0) for s in FUNNEL_STAGES}
+    reached, running = {}, 0
+    # walk from the deepest stage up, accumulating everyone who got that far
+    for stage in reversed(FUNNEL_STAGES):
+        running += raw[stage]
+        reached[stage] = running
+    return [{"stage": s, "count": reached[s]} for s in FUNNEL_STAGES]
+
+
+def get_conversion_summary() -> dict:
+    """Overall funnel headline numbers used for KPI cards."""
+    by_status = {d["status"]: d["count"] for d in get_leads_by_status()}
+    total = sum(by_status.values())
+    converted = by_status.get("converted", 0)
+    qualified = by_status.get("qualified", 0) + converted
+    lost = by_status.get("lost", 0)
+    return {
+        "total": total,
+        "converted": converted,
+        "qualified": qualified,
+        "lost": lost,
+        "conversion_rate": (converted / total) if total else 0.0,
+        "qualified_rate": (qualified / total) if total else 0.0,
+    }
+
+
+def get_weekly_performance() -> list[dict]:
+    """Per ISO-week metrics for improvement trends (oldest → newest).
+
+    Each row: week ("%G-W%V"), week_start (ISO date of the first lead that
+    week), total, avg_score, qualified (score ≥ 0.6) and converted counts."""
+    pipeline = [
+        {"$group": {
+            "_id": {"$dateToString": {"format": "%G-W%V", "date": "$created_at"}},
+            "total": {"$sum": 1},
+            "avg_score": {"$avg": "$lead_score"},
+            "qualified": {"$sum": {"$cond": [{"$gte": ["$lead_score", 0.6]}, 1, 0]}},
+            "converted": {"$sum": {"$cond": [{"$eq": ["$status", "converted"]}, 1, 0]}},
+            "week_start": {"$min": "$created_at"},
+        }},
+        {"$sort": {"_id": 1}},
+    ]
+    rows = []
+    for d in _db().aggregate(pipeline):
+        total = d["total"] or 0
+        converted = d.get("converted", 0)
+        rows.append({
+            "week": d["_id"],
+            "week_start": d.get("week_start"),
+            "total": total,
+            "avg_score": round(d.get("avg_score") or 0.0, 3),
+            "qualified": d.get("qualified", 0),
+            "converted": converted,
+            "conversion_rate": round((converted / total), 3) if total else 0.0,
+        })
+    return rows
