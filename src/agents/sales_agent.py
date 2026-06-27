@@ -61,7 +61,14 @@ MAX_TOOL_ITERATIONS = 3
 
 # ── LLM ───────────────────────────────────────────────────────────────────────
 
-def resolve_llm_config() -> tuple[str | None, str | None, str, str]:
+class LLMConfigError(RuntimeError):
+    """The chat LLM is not configured. Raised so a misconfigured deploy fails
+    loudly with an actionable message instead of silently falling back to a
+    rate-limited free model (which surfaces later as a confusing upstream 429).
+    """
+
+
+def resolve_llm_config() -> tuple[str, str | None, str, str]:
     """Resolve (api_key, base_url, model, provider) for the chat LLM.
 
     Supports OpenAI and OpenAI-compatible gateways (Groq, OpenRouter) via
@@ -69,24 +76,46 @@ def resolve_llm_config() -> tuple[str | None, str | None, str, str]:
     OpenAI's default, or it 401s; if the base URL wasn't configured we auto-route
     by key prefix and pick a sane default model. ``provider`` is inferred for
     usage-log attribution and mirrors the routing below.
+
+    Raises ``LLMConfigError`` when the deploy is unconfigured — no API key, or an
+    OpenRouter key with no explicit model (we refuse to default to the free,
+    rate-limited model and mask the misconfiguration). On Streamlit Cloud, set
+    these in Settings → Secrets and reboot the app.
     """
     api_key = os.getenv("OPENAI_API_KEY")
     base_url = os.getenv("OPENAI_BASE_URL") or None
-    model = os.getenv("OPENAI_MODEL", "gpt-4o")
+    model_env = os.getenv("OPENAI_MODEL")
+    model = model_env or "gpt-4o"
 
-    if base_url is None and api_key and api_key.startswith("gsk_"):
+    if not api_key:
+        raise LLMConfigError(
+            "No LLM API key configured: OPENAI_API_KEY is empty. Set it (recommended: "
+            "a Groq key — OPENAI_API_KEY=gsk_..., OPENAI_BASE_URL=https://api.groq.com/openai/v1, "
+            "OPENAI_MODEL=openai/gpt-oss-120b). For a Streamlit Cloud deploy, add these in "
+            "Settings → Secrets and reboot the app."
+        )
+
+    if base_url is None and api_key.startswith("gsk_"):
         # Groq — fast, OpenAI-compatible. https://console.groq.com/keys
         base_url = "https://api.groq.com/openai/v1"
-        if not os.getenv("OPENAI_MODEL"):
+        if not model_env:
             # gpt-oss-120b streams tool calls reliably on Groq (the Llama-3.3
             # models malform streamed tool calls). Fast + strong at grounding.
             model = "openai/gpt-oss-120b"
-    elif base_url is None and api_key and api_key.startswith("sk-or-"):
+    elif base_url is None and api_key.startswith("sk-or-"):
         base_url = "https://openrouter.ai/api/v1"
-        if not os.getenv("OPENAI_MODEL"):
-            # Default to a FREE OpenRouter model so an unconfigured deploy
-            # doesn't silently spend credits on a paid model (e.g. gpt-4o).
-            model = "openai/gpt-oss-120b:free"
+        if not model_env:
+            # Refuse to silently default to the FREE OpenRouter model: it is
+            # rate-limited upstream and a deploy that lands here looks "working"
+            # until it 429s under any real traffic. Make the operator choose.
+            raise LLMConfigError(
+                "OpenRouter key detected but OPENAI_MODEL is not set. Refusing to default "
+                "to the free, rate-limited 'openai/gpt-oss-120b:free' model. Either set "
+                "OPENAI_MODEL explicitly (and add OpenRouter credits), or switch to Groq "
+                "(OPENAI_API_KEY=gsk_..., OPENAI_BASE_URL=https://api.groq.com/openai/v1, "
+                "OPENAI_MODEL=openai/gpt-oss-120b). On Streamlit Cloud, set this in "
+                "Settings → Secrets and reboot the app."
+            )
 
     provider = infer_chat_provider(model, base_url, api_key)
     return api_key, base_url, model, provider
