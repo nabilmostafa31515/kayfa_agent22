@@ -42,7 +42,7 @@ def save_lead(
     Fill in as many fields as the conversation revealed — leave the rest blank.
     A great ticket captures:
       WHO          — name, phone (WhatsApp), email, location (city/country),
-                     language, dialect (e.g. مصري/خليجي/شامي), contact_channel
+                     language, dialect (e.g. مصري/سعودي/سوري), contact_channel
                      (whatsapp|phone|email), best_contact_time.
       WHAT THEY WANT — interest_area, products_of_interest (specific courses/
                      tracks/diplomas, comma-separated), recommended_product,
