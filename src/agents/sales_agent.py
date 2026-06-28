@@ -89,6 +89,27 @@ def _get_secret(key: str, default: str | None = None) -> str | None:
     return os.getenv(key, default)
 
 
+def _mask(v: str | None) -> str:
+    """First few chars of a secret for diagnostics — never the whole value."""
+    if not v:
+        return "NOT SET"
+    return f"{v[:5]}… (len {len(v)})"
+
+
+def _config_diagnostics() -> str:
+    """Masked snapshot of WHERE the LLM key is (and isn't) visible. Embedded in
+    LLMConfigError so a deploy's error is self-diagnosing: it shows whether the
+    Groq key reached st.secrets vs. only a stale env var is present, without
+    needing dashboard access."""
+    sec = "unavailable (no Streamlit runtime)"
+    try:
+        import streamlit as st
+        sec = _mask(str(st.secrets["OPENAI_API_KEY"])) if "OPENAI_API_KEY" in st.secrets else "NOT SET"
+    except Exception:
+        pass
+    return f"st.secrets OPENAI_API_KEY={sec}; env OPENAI_API_KEY={_mask(os.getenv('OPENAI_API_KEY'))}"
+
+
 def resolve_llm_config() -> tuple[str, str | None, str, str]:
     """Resolve (api_key, base_url, model, provider) for the chat LLM.
 
@@ -113,7 +134,7 @@ def resolve_llm_config() -> tuple[str, str | None, str, str]:
             "No LLM API key configured: OPENAI_API_KEY is empty. Set it (recommended: "
             "a Groq key — OPENAI_API_KEY=gsk_..., OPENAI_BASE_URL=https://api.groq.com/openai/v1, "
             "OPENAI_MODEL=openai/gpt-oss-120b). For a Streamlit Cloud deploy, add these in "
-            "Settings → Secrets and reboot the app."
+            f"Settings → Secrets and reboot the app. [diag: {_config_diagnostics()}]"
         )
 
     if base_url is None and api_key.startswith("gsk_"):
@@ -135,7 +156,7 @@ def resolve_llm_config() -> tuple[str, str | None, str, str]:
                 "OPENAI_MODEL explicitly (and add OpenRouter credits), or switch to Groq "
                 "(OPENAI_API_KEY=gsk_..., OPENAI_BASE_URL=https://api.groq.com/openai/v1, "
                 "OPENAI_MODEL=openai/gpt-oss-120b). On Streamlit Cloud, set this in "
-                "Settings → Secrets and reboot the app."
+                f"Settings → Secrets and reboot the app. [diag: {_config_diagnostics()}]"
             )
 
     provider = infer_chat_provider(model, base_url, api_key)
