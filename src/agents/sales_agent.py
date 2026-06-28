@@ -68,6 +68,27 @@ class LLMConfigError(RuntimeError):
     """
 
 
+def _get_secret(key: str, default: str | None = None) -> str | None:
+    """Read config from st.secrets FIRST (Streamlit Cloud), then the process
+    environment / .env. Mirrors src.auth.user_auth._get_secret.
+
+    Why secrets-first: on Streamlit Cloud the Secrets panel is the source of
+    truth, but a stale or platform-provided OPENAI_API_KEY can linger in
+    os.environ and shadow it. Reading os.getenv alone meant the LLM picked up
+    that stale (OpenRouter) key while the user's Groq value in Secrets was
+    ignored — so the deploy kept routing to OpenRouter no matter what.
+    """
+    try:
+        import streamlit as st  # available in the Streamlit runtime
+        if key in st.secrets:
+            val = str(st.secrets[key]).strip()
+            if val:
+                return val
+    except Exception:
+        pass  # no Streamlit context / no secrets.toml (e.g. local CLI) — use env
+    return os.getenv(key, default)
+
+
 def resolve_llm_config() -> tuple[str, str | None, str, str]:
     """Resolve (api_key, base_url, model, provider) for the chat LLM.
 
@@ -82,9 +103,9 @@ def resolve_llm_config() -> tuple[str, str | None, str, str]:
     rate-limited model and mask the misconfiguration). On Streamlit Cloud, set
     these in Settings → Secrets and reboot the app.
     """
-    api_key = os.getenv("OPENAI_API_KEY")
-    base_url = os.getenv("OPENAI_BASE_URL") or None
-    model_env = os.getenv("OPENAI_MODEL")
+    api_key = _get_secret("OPENAI_API_KEY")
+    base_url = _get_secret("OPENAI_BASE_URL") or None
+    model_env = _get_secret("OPENAI_MODEL")
     model = model_env or "gpt-4o"
 
     if not api_key:
@@ -137,7 +158,7 @@ def get_llm():
         # full max (16k+), which some gateways/accounts (e.g. free OpenRouter
         # credit tiers) reject with HTTP 402. Default kept low so it fits a free
         # OpenRouter balance; raise via OPENAI_MAX_TOKENS once you add credits.
-        max_tokens=int(os.getenv("OPENAI_MAX_TOKENS", "512")),
+        max_tokens=int(_get_secret("OPENAI_MAX_TOKENS", "512")),
     ).bind_tools(TOOLS)
 
 
