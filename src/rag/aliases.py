@@ -52,6 +52,9 @@ _ALIAS_GROUPS: list[tuple[list[str], str]] = [
      "دبلومة Diploma"),
     (["roadmap", "track", "مسار", "مسارات", "تراك"],
      "مسار تعليمي Roadmap Track"),
+    (["price", "prices", "cost", "fee", "fees", "how much",
+      "سعر", "أسعار", "اسعار", "تكلفة", "تكلفه", "بكام", "كام", "رسوم", "قديش", "مجاني", "مجانا", "free"],
+     "السعر الأسعار التكلفة الرسوم Price USD Cost Fees"),
 ]
 
 # Pre-normalize triggers once at import.

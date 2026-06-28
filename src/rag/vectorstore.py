@@ -36,7 +36,24 @@ FAISS_ROOT = Path(__file__).resolve().parents[2] / "faiss_index"
 # (e.g. a diploma page + the policies page) to contribute.
 DEFAULT_CHANNELS = 2
 
+# KB files that carry pricing. The course/roadmap JSON records have NO price
+# field — prices live only in these tables. A price question routes to the
+# course/track record and would miss them, so retrieval force-includes these
+# channels (and guarantees a pricing chunk) whenever the query is about price.
+PRICING_SOURCES = ["kayfa_paid_individual_courses.md", "kayfa_paid_educational_tracks.md"]
+
+_PRICE_INTENT = re.compile(
+    r"price|cost|fee|how much|سعر|أسعار|اسعار|تكلف|بكام|كام|رسوم|قديش|مجان|free",
+    re.IGNORECASE,
+)
+
 _channels: dict[str, FAISS] | None = None
+
+
+def is_price_query(query: str) -> bool:
+    """True when the user is asking about price/cost. Used to force the pricing
+    KB channels into retrieval — course/track records carry no price."""
+    return bool(_PRICE_INTENT.search(query))
 
 
 def channel_key(source: str) -> str:
@@ -158,11 +175,20 @@ def similarity_search(
     # message embed the query ~16× on CPU — the main source of slow replies.
     emb = get_embeddings().embed_query(expand_query(query))
 
+    # Only auto-route price queries to the pricing channels; an explicit
+    # `sources` call (the topic tools) already pairs each record with its price file.
+    price = sources is None and is_price_query(query)
+
     if sources:
         names = [channel_key(s) for s in sources]
         names = [n for n in names if n in channels]
     else:
         names = _route_by_vector(emb, channels, n_channels)
+        if price:
+            for s in PRICING_SOURCES:
+                ck = channel_key(s)
+                if ck in channels and ck not in names:
+                    names.append(ck)
 
     if not names:  # routing came back empty — fall back to all channels
         names = list(channels.keys())
@@ -175,4 +201,23 @@ def similarity_search(
             logger.error(f"Search failed in channel {name}: {e}")
 
     hits.sort(key=lambda ds: ds[1])
-    return [doc for doc, _ in hits[:k]]
+
+    if not price:
+        return [doc for doc, _ in hits[:k]]
+
+    # Price question: guarantee the best chunk from EACH pricing source (a course
+    # price lives in the individual-courses table, a track price in the tracks
+    # table — picking just "any" pricing chunk can surface the wrong one), and put
+    # them FIRST so they survive the caller's context-length truncation.
+    pricing_keys = {channel_key(s) for s in PRICING_SOURCES}
+    pricing_first: list[tuple[Document, float]] = []
+    rest: list[tuple[Document, float]] = []
+    seen_sources: set[str] = set()
+    for h in hits:
+        src = channel_key(h[0].metadata.get("source", ""))
+        if src in pricing_keys and src not in seen_sources:
+            seen_sources.add(src)
+            pricing_first.append(h)
+        else:
+            rest.append(h)
+    return [doc for doc, _ in (pricing_first + rest)[:k]]
