@@ -1,207 +1,399 @@
-# 🎓 Kayfa AI Sales Agent
+# 🚀 Kayfa AI Sales Agent
 
-A production-ready agentic AI sales assistant for [Kayfa](https://kayfa.io) — built with LangGraph, RAG, MongoDB Atlas, and Streamlit.
+> **An intelligent, production-ready AI Sales Agent that understands customers, recommends the right learning path, and converts conversations into qualified CRM leads.**
 
----
-
-## ✨ Features
-
-| Feature | Details |
-|---|---|
-| 🤖 Agentic AI | LangGraph multi-node workflow |
-| 📚 RAG Pipeline | FAISS + SentenceTransformers (multilingual) |
-| 🌍 Bilingual | Arabic (RTL) + English — auto-detected |
-| 💾 CRM | MongoDB Atlas lead storage + CRUD |
-| 📊 CRM Dashboard | Plotly analytics — scores, statuses, trends |
-| 📈 Performance Dashboard | Manager view — WoW KPIs, conversion funnel & quality trends |
-| 🔐 Manager Login | Single sign-in (env/secrets) gating both dashboards |
-| 🎯 Lead Scoring | Rule-based qualifier (0.0 → 1.0) |
-| 🔒 No Hallucinations | Answers only from KB context |
+Built with **LangGraph**, **RAG**, **OpenAI GPT-4o**, **MongoDB Atlas**, and **Streamlit**.
 
 ---
 
-## 🏗️ Architecture
+<p align="center">
 
-```
-User Message
-    ↓
-Intent Detection Node  ── detects stage, language, lead score
-    ↓
-Knowledge Retrieval Node  ── FAISS similarity search (k=5)
-    ↓
-Agent Node  ── GPT-4o + 6 tools (search_courses, search_roadmaps,
-               retrieve_policy, save_lead, get_lead, update_lead)
-    ↓
-Lead Qualification Check  ── score ≥ 0.45 → show capture form
-    ↓
-CRM Save  ── MongoDB Atlas (leads collection)
-    ↓
-Final Response (streamed to Streamlit)
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o-412991?style=for-the-badge)
+![LangGraph](https://img.shields.io/badge/LangGraph-Agentic%20AI-blue?style=for-the-badge)
+![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-47A248?style=for-the-badge&logo=mongodb&logoColor=white)
+![FAISS](https://img.shields.io/badge/FAISS-Vector%20Search-red?style=for-the-badge)
+![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)
+
+</p>
+
+---
+
+# 🎯 Overview
+
+Every day, potential learners visit educational platforms looking for the right course.
+
+They ask questions like:
+
+- Which diploma fits my background?
+- Is this roadmap suitable for beginners?
+- What's included in the price?
+- Can I get a certificate?
+- Which track helps me get hired faster?
+
+Most visitors leave before speaking with a human sales representative.
+
+This project solves that problem by building an **AI-powered Sales Agent** capable of:
+
+- Understanding customer intent
+- Answering only from a trusted knowledge base
+- Recommending the best learning path
+- Handling objections naturally
+- Detecting buying signals
+- Capturing qualified leads automatically
+- Providing CRM analytics for the sales team
+
+---
+
+# 🎥 Live Demo
+
+## 🌐 Live Application
+
+👉 **https://kayfaagent22-kde7bz8fx6qkj2v9cxp9zu.streamlit.app/**
+
+---
+
+# ✨ Features
+
+| Feature | Description |
+|----------|-------------|
+| 🤖 Agentic AI | Multi-node LangGraph workflow |
+| 📚 RAG Pipeline | FAISS + SentenceTransformers |
+| 🌍 Bilingual | Arabic (RTL) & English |
+| 🧠 Intent Detection | Understands customer stage & goals |
+| 🎯 Smart Recommendations | Courses, Tracks & Diplomas |
+| 💾 MongoDB CRM | Automatic Lead Capture |
+| 📊 CRM Dashboard | Interactive Plotly Analytics |
+| 📈 Performance Dashboard | KPIs, Funnel & Conversion Metrics |
+| 🔐 Manager Authentication | Protected Admin Dashboard |
+| ⭐ Lead Qualification | Rule-Based Lead Scoring |
+| 🚫 Hallucination Prevention | Responses grounded only in KB |
+| ⚡ Real-time Streaming | Fast conversational experience |
+
+---
+
+# 🏗 System Architecture
+
+```text
+                    User Message
+                         │
+                         ▼
+             Intent Detection Node
+      (Language • Stage • Lead Score)
+                         │
+                         ▼
+         Knowledge Retrieval (FAISS)
+                         │
+                         ▼
+         GPT-4o Agent (LangGraph)
+        ┌────────────────────────┐
+        │ search_courses         │
+        │ search_roadmaps        │
+        │ retrieve_policy        │
+        │ save_lead              │
+        │ get_lead               │
+        │ update_lead            │
+        └────────────────────────┘
+                         │
+                         ▼
+          Lead Qualification Engine
+                         │
+          score >= 0.45 ?
+               /          \
+             Yes          No
+              │            │
+              ▼            ▼
+      Capture Customer   Continue Chat
+              │
+              ▼
+      MongoDB Atlas CRM
+              │
+              ▼
+      Streamlit Chat UI
 ```
 
 ---
 
-## 📁 Project Structure
+# 🖥️ Application Screens
+
+## 👤 Customer
+
+- AI Chat Assistant
+- Arabic & English conversations
+- Smart recommendations
+- Conversation memory
+- Lead capture
+
+---
+
+## 👨‍💼 Manager Dashboard
+
+- CRM Management
+- Lead Analytics
+- Conversion Funnel
+- Weekly Performance
+- Status Distribution
+- Lead Quality
+- Search & Filters
+
+---
+
+# 🧠 AI Workflow
+
+The AI agent follows an intelligent multi-step workflow:
+
+### 1️⃣ Understand User Intent
+
+Detects:
+
+- Language
+- Dialect
+- User goal
+- Current experience
+- Buying intent
+
+---
+
+### 2️⃣ Retrieve Knowledge
+
+Uses **RAG** to search:
+
+- Courses
+- Roadmaps
+- Diplomas
+- Policies
+- FAQs
+
+No answers are generated without retrieved context.
+
+---
+
+### 3️⃣ Recommend the Best Product
+
+Based on:
+
+- Experience
+- Career Goal
+- Budget
+- Learning Path
+
+---
+
+### 4️⃣ Qualify the Lead
+
+Calculates a lead score between:
 
 ```
+0.00 → 1.00
+```
+
+Lead Temperature:
+
+| Score | Status |
+|--------|---------|
+| ≥ 0.60 | 🔥 Hot |
+| 0.35–0.59 | 🟡 Warm |
+| < 0.35 | ❄ Cold |
+
+---
+
+### 5️⃣ Save to CRM
+
+Qualified leads are automatically stored inside MongoDB Atlas with:
+
+- Customer Information
+- Products of Interest
+- Conversation Summary
+- Buying Signals
+- Recommended Next Action
+
+---
+
+# 📂 Project Structure
+
+```text
 kayfa_agent/
-├── app.py                        # Entry point
+│
+├── app.py
 ├── requirements.txt
 ├── .env.example
 │
 ├── data/
 │   ├── json/
-│   │   ├── kayfa_courses.json    # 48 courses
-│   │   └── kayfa_roadmaps.json   # 13 roadmaps
-│   └── text/                     # 12 markdown KB files
+│   └── text/
 │
 ├── src/
-│   ├── rag/
-│   │   ├── loader.py             # Load all KB docs
-│   │   ├── chunker.py            # RecursiveCharacterTextSplitter
-│   │   ├── embeddings.py         # paraphrase-multilingual-MiniLM-L12-v2
-│   │   └── vectorstore.py        # FAISS build + persist
-│   │
 │   ├── agents/
-│   │   ├── sales_agent.py        # LangGraph workflow
-│   │   └── lead_qualifier.py     # Scoring + intent detection
-│   │
+│   ├── rag/
 │   ├── tools/
-│   │   ├── search_courses.py     # search_courses, search_roadmaps, retrieve_policy
-│   │   └── save_lead.py          # save_lead, get_lead, update_lead
-│   │
 │   ├── database/
-│   │   ├── mongodb.py            # Atlas connection manager
-│   │   └── crm_repository.py     # Full CRUD + analytics aggregations
-│   │
 │   └── prompts/
-│       └── system_prompt.py      # System + sales prompts
 │
 └── pages/
-    ├── 1_Chat_Assistant.py       # Bilingual chat UI + lead form
-    └── 2_CRM_Dashboard.py        # Lead management + Plotly charts
+    ├── Chat Assistant
+    └── CRM Dashboard
 ```
 
 ---
 
-## 🗄️ MongoDB Schema
+# 🗄 CRM Schema
 
-A lead is a full sales **ticket**, grouped into Who / What they want / How likely / What happened:
+Each qualified lead contains:
 
-```json
-{
-  "_id": "ObjectId",
+### 👤 Customer
 
-  // WHO
-  "name": "Ahmed Mohamed",
-  "phone": "01012345678",
-  "whatsapp": "01012345678",
-  "email": "ahmed@example.com",
-  "location": "Cairo, Egypt",
-  "language": "arabic",
-  "dialect": "مصري",
-  "contact_channel": "whatsapp",
-  "best_contact_time": "بعد 6 مساءً",
-
-  // WHAT THEY WANT
-  "interest_area": "AI / Data Science",
-  "products_of_interest": ["AI Diploma", "Data Science Track"],
-  "recommended_product": "AI Diploma",
-  "goal": "تغيير مساره المهني إلى الذكاء الاصطناعي",
-  "current_level": "beginner",
-  "prerequisites": "أساسيات بايثون",
-
-  // HOW LIKELY
-  "lead_score": 0.75,
-  "temperature": "hot",
-  "buying_signals": ["سأل عن السعر", "طلب رابط التسجيل"],
-  "budget_sensitivity": "high",
-  "objections": "غير متأكد من الوقت المتاح",
-
-  // WHAT HAPPENED
-  "conversation_summary": "سأل عن دبلومة الذكاء الاصطناعي وسعرها...",
-  "next_action": "أرسل رابط الدفع/التسجيل وتابع فوراً.",
-  "status": "new",
-  "created_at": "2024-01-15T10:30:00Z"
-}
-```
-
-Only `name` / `phone` / `email` are required — every other field is optional, so
-partial captures still persist. `temperature` is derived from `lead_score`
-(`hot ≥ 0.6 · warm ≥ 0.35 · cold`) when not explicitly set. The agent fills these
-fields via the `save_lead` tool during conversation; the chat capture form and
-rule-based extractors (`detect_dialect`, `detect_current_level`,
-`detect_budget_sensitivity`) backfill the rest.
-
-**Status values:** `new` → `contacted` → `qualified` → `converted` / `lost`
+- Name
+- Phone
+- WhatsApp
+- Email
+- Country
+- Language
+- Dialect
 
 ---
 
-## 🚀 Quick Start
+### 🎯 Interests
 
-### 1. Clone & Install
+- Goal
+- Current Level
+- Interested Products
+- Recommended Product
+
+---
+
+### 📈 Qualification
+
+- Lead Score
+- Temperature
+- Buying Signals
+- Budget Sensitivity
+- Objections
+
+---
+
+### 📝 Sales Summary
+
+- Conversation Summary
+- Next Action
+- Status
+- Timestamp
+
+---
+
+# 🚀 Quick Start
+
+## Clone Repository
 
 ```bash
-git clone https://github.com/yourusername/kayfa-ai-agent
+git clone https://github.com/yourusername/kayfa-ai-agent.git
+
 cd kayfa-ai-agent
+```
+
+---
+
+## Install
+
+```bash
 pip install -r requirements.txt
 ```
 
-### 2. Configure Environment
+---
 
-```bash
-cp .env.example .env
-# Edit .env with your keys
-```
+## Configure
 
 ```env
-OPENAI_API_KEY=sk-...
-MONGODB_URI=mongodb+srv://<user>:<pass>@cluster.mongodb.net/
-MONGODB_DB=kayfa_crm
+OPENAI_API_KEY=
+
+MONGODB_URI=
+
+MONGODB_DB=
 ```
 
-### 3. Run
+---
+
+## Run
 
 ```bash
 streamlit run app.py
 ```
 
-The FAISS index builds automatically on first run (~30 seconds).
+The FAISS index is automatically built during the first run.
 
 ---
 
-## ☁️ Deployment
+# ☁ Deployment
 
-### Streamlit Cloud
+Supports deployment on:
 
-1. Push to GitHub
-2. Go to [share.streamlit.io](https://share.streamlit.io)
-3. Add secrets from `.env` in the Secrets panel
-4. Deploy `app.py`
-
-### Render / Railway
-
-```bash
-# Start command
-streamlit run app.py --server.port $PORT --server.address 0.0.0.0
-```
-
-Add environment variables in the platform dashboard.
+- ✅ Streamlit Cloud
+- ✅ Railway
+- ✅ Render
 
 ---
 
-## 🛠️ Tech Stack
+# 🛠 Tech Stack
 
-- **LLM:** OpenAI GPT-4o
-- **Agent Framework:** LangGraph + LangChain
-- **Embeddings:** `paraphrase-multilingual-MiniLM-L12-v2` (SentenceTransformers)
-- **Vector DB:** FAISS (local, persisted)
-- **Database:** MongoDB Atlas
-- **UI:** Streamlit + Plotly
-- **Language:** Python 3.11+
+| Category | Technology |
+|------------|------------|
+| LLM | OpenAI GPT-4o |
+| Framework | LangGraph + LangChain |
+| Retrieval | RAG |
+| Embeddings | SentenceTransformers |
+| Vector Store | FAISS |
+| Database | MongoDB Atlas |
+| Backend | Python |
+| Frontend | Streamlit |
+| Charts | Plotly |
 
 ---
 
-## 📄 License
+# 💡 Key Highlights
 
-MIT — built for the KAYEF AI Engineering Program, Week 3 Task.
+- Production-ready architecture
+- Modular LangGraph workflow
+- Grounded AI responses
+- CRM automation
+- Smart lead qualification
+- Bilingual support
+- Interactive dashboards
+- Scalable design
+- Secure manager authentication
+
+---
+
+# 📈 Future Improvements
+
+- Voice Conversations
+- WhatsApp Integration
+- Email Automation
+- Calendar Booking
+- Multi-Agent Collaboration
+- AI Sales Analytics
+- Human Handoff
+- Cost Monitoring Dashboard
+- Response Trace Visualization
+
+---
+
+# 🤝 Acknowledgments
+
+This project was developed as part of the **Kayfa AI Engineering Internship Program**, demonstrating how modern Agentic AI systems can enhance customer engagement and automate sales workflows using Retrieval-Augmented Generation (RAG), Large Language Models, and CRM integration.
+
+---
+
+# 📬 Contact
+
+**Mostafa Nabil**
+
+💼 LinkedIn: *(Add your profile link)*
+
+💻 GitHub: *(Add your GitHub profile link)*
+
+🌐 Live Demo:
+
+**https://kayfaagent22-kde7bz8fx6qkj2v9cxp9zu.streamlit.app/**
+
+---
+
+## ⭐ If you found this project interesting, don't forget to star the repository!
