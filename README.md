@@ -386,9 +386,9 @@ This project was developed as part of the **Kayfa AI Engineering Internship Prog
 
 **Mostafa Nabil**
 
-💼 LinkedIn: *(Add your profile link)*
+💼 LinkedIn: *(https://www.linkedin.com/in/mostafa-nabil-rashad/)*
 
-💻 GitHub: *(Add your GitHub profile link)*
+💻 GitHub: *(https://github.com/nabilmostafa31515/kayfa_agent22)*
 
 🌐 Live Demo:
 
